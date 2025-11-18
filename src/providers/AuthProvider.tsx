@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+// 📄 src/providers/AuthProvider.tsx
+
+import { createContext, useContext, useEffect, useState, useCallback } from 'react'
 import { supabase } from '../utils/supabase'
 import type { Session, User } from '@supabase/supabase-js'
 import { actions } from '../store';
@@ -23,37 +25,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   
-  // ✅ ИСПРАВЛЕНИЕ: Используем ref для предотвращения пересоздания функции
-  const cleanupExecutedRef = useRef(false);
-
   const cleanupAndReset = useCallback(() => {
-    if (cleanupExecutedRef.current) return;
-    
     console.log('[AuthProvider] Cleaning up session and resetting store.');
-    cleanupExecutedRef.current = true;
-    
     supabase.removeAllChannels(); 
     actions.resetStore();
     setUser(null);
     setSession(null);
-    
-    // Сбрасываем флаг через небольшую задержку
-    setTimeout(() => {
-      cleanupExecutedRef.current = false;
-    }, 100);
   }, []);
 
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+    const initializeAuth = async () => {
+      const { data: { session: initialSession } } = await supabase.auth.getSession();
       if (mounted) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
         setIsLoading(false);
         setIsInitialized(true);
       }
-    });
+    };
+
+    initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, newSession) => {
@@ -62,8 +55,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         console.log(`[AuthProvider] Auth event: ${event}`);
 
         if (event === 'SIGNED_OUT') {
-          cleanupAndReset();
-        } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
+          if (user) {
+            cleanupAndReset();
+          }
+        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
           setSession(newSession);
           setUser(newSession?.user ?? null);
         }
@@ -74,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [cleanupAndReset]);
+  }, [cleanupAndReset, user]);
 
   const value = {
     user,
