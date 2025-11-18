@@ -1,10 +1,15 @@
-// 📄 vercel.json (НОВЫЙ ФАЙЛ)
-
+// 📄 vercel.json
 {
+  "functions": {
+    "api/index.js": {
+      "memory": 1024,
+      "maxDuration": 300
+    }
+  },
   "rewrites": [
     {
-      "source": "/:path((?!_build|favicon.ico|logo192.png|logo512.png|manifest.json|robots.txt|css/.*).*)",
-      "destination": "/.vercel/functions/server"
+      "source": "/(.*)",
+      "destination": "/api/index.js"
     }
   ]
 }
