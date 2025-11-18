@@ -1,6 +1,6 @@
 // 📄 src/providers/AuthProvider.tsx
 
-import { createContext, useContext, useEffect, useState, useCallback } from 'react'
+import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../utils/supabase'
 import type { Session, User } from '@supabase/supabase-js'
 import { actions } from '../store';
@@ -22,13 +22,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
   
-  const cleanupAndReset = useCallback(() => {
+  const cleanupAndResetRef = useRef(() => {
     console.log('[AuthProvider] Cleaning up session and resetting store.');
     supabase.removeAllChannels(); 
     actions.resetStore();
     setUser(null);
     setSession(null);
-  }, []);
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -45,15 +45,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (_event, newSession) => {
         if (!mounted) return;
 
-        const currentUser = newSession?.user ?? null;
+        const currentUserId = user?.id;
+        const newUserId = newSession?.user?.id;
 
-        if (user?.id !== currentUser?.id) {
-          cleanupAndReset();
+        if (currentUserId && !newUserId) {
+          cleanupAndResetRef.current();
         }
-        
-        setSession(newSession);
-        setUser(currentUser);
 
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        
         if (!isInitialized) {
           setIsInitialized(true);
         }
@@ -64,8 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-
-  }, [cleanupAndReset, isInitialized, user]);
+  }, [isInitialized, user]);
 
   const value = {
     user,

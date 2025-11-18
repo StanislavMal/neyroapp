@@ -45,7 +45,7 @@ function Home() {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
-  
+
   const [appState, setAppState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -71,8 +71,9 @@ function Home() {
   } = useScrollManagement(messages.length + (pendingMessage ? 1 : 0));
   const shouldShowScrollDownButton = showScrollDownButton && !isInputFocused && !isModelSelectorOpen;
 
-  useEffect(() => {    
+  useEffect(() => {
     if (!isInitialized) return;
+
     if (!user) {
       navigate({ to: '/login', replace: true });
       return;
@@ -81,11 +82,13 @@ function Home() {
     if (appState === 'loading') {
       const loadInitialData = async () => {
         try {
-          await Promise.all([
-            loadSettings(),
-            loadPrompts(),
-            loadConversations()
-          ]);
+          console.log('Loading settings...');
+          await loadSettings();
+          console.log('Loading prompts...');
+          await loadPrompts();
+          console.log('Loading conversations...');
+          await loadConversations();
+          
           setAppState('ready');
         } catch (error) {
           console.error("Failed to load initial data:", error);
@@ -181,7 +184,7 @@ function Home() {
     setIsOpen: sidebar.setIsOpen,
     isCollapsed: sidebar.isCollapsed,
   };
-
+  
   if (appState === 'loading') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
