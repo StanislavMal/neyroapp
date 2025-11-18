@@ -8,21 +8,18 @@ import { actions } from '../store';
 type AuthContextType = {
   user: User | null;
   session: Session | null;
-  isLoading: boolean;
   isInitialized: boolean;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
-  isLoading: true,
   isInitialized: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
   
   const cleanupAndReset = useCallback(() => {
@@ -36,31 +33,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const initializeAuth = async () => {
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (mounted) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
-        setIsLoading(false);
         setIsInitialized(true);
       }
-    };
-
-    initializeAuth();
+    });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
+      (_event, newSession) => {
         if (!mounted) return;
 
-        console.log(`[AuthProvider] Auth event: ${event}`);
+        const currentUser = newSession?.user ?? null;
 
-        if (event === 'SIGNED_OUT') {
-          if (user) {
-            cleanupAndReset();
-          }
-        } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-          setSession(newSession);
-          setUser(newSession?.user ?? null);
+        if (user?.id !== currentUser?.id) {
+          cleanupAndReset();
+        }
+        
+        setSession(newSession);
+        setUser(currentUser);
+
+        if (!isInitialized) {
+          setIsInitialized(true);
         }
       }
     );
@@ -69,16 +64,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [cleanupAndReset, user]);
+
+  }, [cleanupAndReset, isInitialized, user]);
 
   const value = {
     user,
     session,
-    isLoading,
     isInitialized,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{isInitialized ? children : null}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {
