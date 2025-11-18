@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react'
+// 📄 src/providers/AuthProvider.tsx
+
+import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../utils/supabase'
 import type { Session, User } from '@supabase/supabase-js'
 import { actions } from '../store';
@@ -6,66 +8,59 @@ import { actions } from '../store';
 type AuthContextType = {
   user: User | null;
   session: Session | null;
-  isLoading: boolean;
   isInitialized: boolean;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
-  isLoading: true,
   isInitialized: false,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [isInitialized, setIsInitialized] = useState(false)
-  
-  // ✅ ИСПРАВЛЕНИЕ: Используем ref для предотвращения пересоздания функции
-  const cleanupExecutedRef = useRef(false);
-
-  const cleanupAndReset = useCallback(() => {
-    if (cleanupExecutedRef.current) return;
-    
-    console.log('[AuthProvider] Cleaning up session and resetting store.');
-    cleanupExecutedRef.current = true;
-    
-    supabase.removeAllChannels(); 
-    actions.resetStore();
-    setUser(null);
-    setSession(null);
-    
-    // Сбрасываем флаг через небольшую задержку
-    setTimeout(() => {
-      cleanupExecutedRef.current = false;
-    }, 100);
-  }, []);
+  const userRef = useRef(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     let mounted = true;
+
+    const cleanupAndReset = () => {
+      console.log('[AuthProvider] Cleaning up session and resetting store.');
+      supabase.removeAllChannels(); 
+      actions.resetStore();
+      setUser(null);
+      setSession(null);
+    };
 
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (mounted) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
-        setIsLoading(false);
         setIsInitialized(true);
       }
     });
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
+      (_event, newSession) => {
         if (!mounted) return;
 
-        console.log(`[AuthProvider] Auth event: ${event}`);
+        const newUserId = newSession?.user?.id;
+        const currentUserId = userRef.current?.id;
 
-        if (event === 'SIGNED_OUT') {
+        if (currentUserId && currentUserId !== newUserId) {
           cleanupAndReset();
-        } else if (event === 'TOKEN_REFRESHED' || event === 'SIGNED_IN') {
-          setSession(newSession);
-          setUser(newSession?.user ?? null);
+        }
+
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+        
+        if (!isInitialized) {
+          setIsInitialized(true);
         }
       }
     );
@@ -74,16 +69,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       mounted = false;
       subscription.unsubscribe();
     };
-  }, [cleanupAndReset]);
+  }, []);
 
   const value = {
     user,
     session,
-    isLoading,
     isInitialized,
   };
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={value}>{isInitialized ? children : null}</AuthContext.Provider>;
 }
 
 export const useAuth = () => {

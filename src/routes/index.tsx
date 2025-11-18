@@ -46,7 +46,7 @@ function Home() {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 
-  const [appState, setAppState] = useState<'authenticating' | 'loading' | 'error' | 'ready'>('authenticating');
+  const [appState, setAppState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const footerRef = useRef<FooterRef>(null);
@@ -73,18 +73,25 @@ function Home() {
 
   useEffect(() => {
     if (!isInitialized) return;
+
     if (!user) {
       navigate({ to: '/login', replace: true });
       return;
     }
 
-    if (appState !== 'ready' && appState !== 'error') {
+    if (appState === 'loading') {
       const loadInitialData = async () => {
-        setAppState('loading');
         try {
-          await Promise.all([loadConversations(), loadPrompts(), loadSettings()]);
+          console.log('Loading settings...');
+          await loadSettings();
+          console.log('Loading prompts...');
+          await loadPrompts();
+          console.log('Loading conversations...');
+          await loadConversations();
+          
           setAppState('ready');
         } catch (error) {
+          console.error("Failed to load initial data:", error);
           setLoadError('Failed to load your data. Please refresh the page.');
           setAppState('error');
         }
@@ -104,8 +111,8 @@ function Home() {
       supabase.channel('messages-changes').on<MessageWithConversationId>(
         'postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `user_id=eq.${user.id}`},
         (payload) => {
-          if (store.state.currentConversationId === payload.new.conversation_id && !store.state.currentMessages.some(m => m.id === payload.new.id)) {
-            actions.addMessage(payload.new);
+          if (store.state.currentConversationId === payload.new.conversation_id) {
+             actions.addMessageToCache(payload.new.conversation_id, payload.new as Message);
           }
         }
       ).subscribe(),
@@ -178,12 +185,12 @@ function Home() {
     isCollapsed: sidebar.isCollapsed,
   };
   
-  if (appState === 'authenticating' || appState === 'loading') {
+  if (appState === 'loading') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500"></div>
-          <p className="mt-4 text-gray-400">{appState === 'authenticating' ? 'Authenticating...' : 'Loading your data...'}</p>
+          <p className="mt-4 text-gray-400">Loading your data...</p>
         </div>
       </div>
     );

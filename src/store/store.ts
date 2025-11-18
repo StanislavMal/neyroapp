@@ -30,53 +30,77 @@ export interface Conversation {
 export interface State {
   prompts: Prompt[]
   settings: UserSettings | null
-  conversations: Conversation[]
-  currentMessages: Message[] 
+  conversations: Conversation[]  
+  messageCache: Record<string, Message[]>
   currentConversationId: string | null
   isLoading: boolean
-  // ✅ НОВОЕ: Добавляем поле для хранения текущего стриминга
-  streamingContent: string
 }
 
 const initialState: State = {
   prompts: [],
   settings: null,
   conversations: [],
-  currentMessages: [],
+
+  messageCache: {},
   currentConversationId: null,
   isLoading: false,
-  streamingContent: '', // ✅ Начальное значение
 }
 
 export const store = new Store<State>(initialState)
 
-// ... (остальной код actions и selectors остается без изменений)
 export const actions = {
   resetStore: () => {
     store.setState(() => initialState);
   },
 
-  setMessages: (messages: Message[]) => {
-    store.setState(state => ({ ...state, currentMessages: messages }));
-  },
-
-  addMessage: (message: Message) => {
+  setCachedMessages: (conversationId: string, messages: Message[]) => {
     store.setState(state => ({
       ...state,
-      currentMessages: [...state.currentMessages, message]
+      messageCache: {
+        ...state.messageCache,
+        [conversationId]: messages,
+      },
     }));
   },
 
-  editMessage: (messageId: string, newContent: string) => {
+  addMessageToCache: (conversationId: string, message: Message) => {
     store.setState(state => {
-      const msgIndex = state.currentMessages.findIndex(m => m.id === messageId);
+      const existingMessages = state.messageCache[conversationId] || [];
+      return {
+        ...state,
+        messageCache: {
+          ...state.messageCache,
+          [conversationId]: [...existingMessages, message],
+        },
+      };
+    });
+  },
+
+  editCachedMessage: (conversationId: string, messageId: string, newContent: string) => {
+    store.setState(state => {
+      const messages = state.messageCache[conversationId] || [];
+      const msgIndex = messages.findIndex(m => m.id === messageId);
       if (msgIndex === -1) return state;
-      
-      const newMessages = [...state.currentMessages];
+
+      const newMessages = [...messages];
       newMessages[msgIndex] = { ...newMessages[msgIndex], content: newContent };
       const finalMessages = newMessages.slice(0, msgIndex + 1);
 
-      return { ...state, currentMessages: finalMessages };
+      return {
+        ...state,
+        messageCache: {
+          ...state.messageCache,
+          [conversationId]: finalMessages,
+        },
+      };
+    });
+  },
+
+  clearCachedMessages: (conversationId: string) => {
+    store.setState(state => {
+      const newCache = { ...state.messageCache };
+      delete newCache[conversationId];
+      return { ...state, messageCache: newCache };
     });
   },
 
@@ -93,12 +117,7 @@ export const actions = {
   },
 
   setCurrentConversationId: (id: string | null) => {
-    store.setState(state => {
-      if (state.currentConversationId !== id) {
-        return { ...state, currentConversationId: id, currentMessages: [] };
-      }
-      return { ...state, currentConversationId: id };
-    });
+    store.setState(state => ({ ...state, currentConversationId: id }));
   },
 
   addConversation: (conversation: Conversation) => {
@@ -106,6 +125,7 @@ export const actions = {
       ...state,
       conversations: [conversation, ...state.conversations],
       currentConversationId: conversation.id,
+      messageCache: { ...state.messageCache, [conversation.id]: [] },
     }));
   },
 
@@ -119,11 +139,11 @@ export const actions = {
   },
 
   deleteConversation: (id: string) => {
+    actions.clearCachedMessages(id);
     store.setState(state => ({
       ...state,
       conversations: state.conversations.filter(conv => conv.id !== id),
       currentConversationId: state.currentConversationId === id ? null : state.currentConversationId,
-      currentMessages: state.currentConversationId === id ? [] : state.currentMessages,
     }));
   },
   
@@ -141,5 +161,8 @@ export const selectors = {
   getConversations: (state: State) => state.conversations,
   getCurrentConversationId: (state: State) => state.currentConversationId,
   getIsLoading: (state: State) => state.isLoading,
-  getCurrentMessages: (state: State) => state.currentMessages,
+  getCurrentMessages: (state: State) => {
+    if (!state.currentConversationId) return [];
+    return state.messageCache[state.currentConversationId] || [];
+  },
 }
