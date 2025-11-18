@@ -10,8 +10,8 @@ import { useAuth } from '../providers/AuthProvider';
 import type { PostgrestSingleResponse, PostgrestResponse } from '@supabase/supabase-js';
 
 const loadMessagesForConversation = async (conversationId: string) => {
-  if (store.state.currentConversationId === conversationId && store.state.currentMessages.length > 0) {
-    console.log(`[loadMessages] Messages for ${conversationId} already in store. Skipping fetch.`);
+  if (store.state.messageCache[conversationId]) {
+    console.log(`[loadMessages] Messages for ${conversationId} found in cache. Skipping fetch.`);
     return;
   }
 
@@ -38,7 +38,7 @@ const loadMessagesForConversation = async (conversationId: string) => {
     
     if (error) {
       console.error('Error loading messages:', error);
-      actions.setMessages([]);
+      actions.setCachedMessages(conversationId, []);
     } else {
       const formattedMessages = data.map((m: any) => ({
         id: m.id,
@@ -47,11 +47,11 @@ const loadMessagesForConversation = async (conversationId: string) => {
       })) as Message[];
       
       console.log('[loadMessages] Loaded messages:', formattedMessages.length);
-      actions.setMessages(formattedMessages);
+      actions.setCachedMessages(conversationId, formattedMessages);
     }
   } catch (error) {
     console.error('Failed to load messages after all retries:', error);
-    actions.setMessages([]);
+    actions.setCachedMessages(conversationId, []);
   }
 };
 
@@ -414,7 +414,7 @@ export function useConversations() {
 
     console.log('[useConversations] Adding message:', message.role, message.content.substring(0, 50));
     
-    actions.addMessage(message);
+    actions.addMessageToCache(conversationId, message);
 
     try {
       const result = await retryAsync(
@@ -446,6 +446,9 @@ export function useConversations() {
   }, [user]);
 
   const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
+    const convId = selectors.getCurrentConversationId(store.state);
+    if (!convId) return null;
+
     const originalMessages = selectors.getCurrentMessages(store.state);
     const originalMessageIndex = originalMessages.findIndex(m => m.id === messageId);
     
@@ -458,7 +461,7 @@ export function useConversations() {
       .slice(originalMessageIndex + 1)
       .map(m => m.id);
 
-    actions.editMessage(messageId, newContent);
+    actions.editCachedMessage(convId, messageId, newContent);
     
     try {
       const promises: Promise<PostgrestResponse<any>>[] = [];
@@ -488,13 +491,11 @@ export function useConversations() {
 
     } catch (error) {
       console.error('Failed to update messages in Supabase after edit:', error);
-      actions.setMessages(originalMessages);
+      actions.setCachedMessages(convId, originalMessages);
       return null;
     }
-
-    const updatedMessages = selectors.getCurrentMessages(store.state);
     
-    return updatedMessages;
+    return selectors.getCurrentMessages(store.state);
   }, []);
   
   const duplicateConversation = useCallback(async (id: string) => {
@@ -508,7 +509,6 @@ export function useConversations() {
         async () => {
           return await supabase
             .from('messages')
-            // ✅ ИЗМЕНЕНИЕ: Добавляем `created_at` в выборку
             .select('role, content, user_id, created_at')
             .eq('conversation_id', id)
             .order('created_at', { ascending: true })
@@ -553,7 +553,6 @@ export function useConversations() {
 
       const newConversation = newConvData as Conversation;
 
-      // ✅ ИЗМЕНЕНИЕ: Теперь `created_at` будет автоматически включено в объект
       const newMessages = messagesToCopy.map((msg: any) => ({
         ...msg,
         conversation_id: newConversation.id,
