@@ -1,15 +1,50 @@
-// 📄 vercel.json
 {
-  "functions": {
-    "api/index.js": {
-      "memory": 1024,
-      "maxDuration": 300
-    }
-  },
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index.js"
+      "src": ".vinxi/build/server/index.js",
+      "use": "@vercel/node"
+    },
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": ".vercel/output/static"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/_build/(.*)",
+      "dest": "/.vercel/output/static/_build/$1"
+    },
+    {
+      "src": "/css/(.*)",
+      "dest": "/.vercel/output/static/css/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/.vercel/output/static/favicon.ico"
+    },
+    {
+      "src": "/logo192.png",
+      "dest": "/.vercel/output/static/logo192.png"
+    },
+    {
+      "src": "/logo512.png",
+      "dest": "/.vercel/output/static/logo512.png"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "/.vercel/output/static/manifest.json"
+    },
+    {
+      "src": "/robots.txt",
+      "dest": "/.vercel/output/static/robots.txt"
+    },
+    {
+      "src": "/(.*)",
+      "dest": ".vinxi/build/server/index.js"
     }
   ]
 }
