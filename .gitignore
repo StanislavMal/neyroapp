@@ -6,4 +6,8 @@ dist-ssr
 .vinxi
 .netlify
 .env
-/_scripts/
+/_scripts
+.vinxi/
+node_modules/
+dist/
+.vercel/
