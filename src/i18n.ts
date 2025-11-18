@@ -18,24 +18,23 @@ const resources = {
 
 const i18nInstance = i18n.use(initReactI18next);
 
-// ✅ ИСПРАВЛЕНИЕ: Используем детектор только на клиенте
 if (!import.meta.env.SSR) {
   i18nInstance.use(LanguageDetector);
 }
 
 i18nInstance.init({
   resources,
-  
-  // ✅ ИСПРАВЛЕНИЕ: На сервере и клиенте используем одинаковый fallback
-  // Детектор языка сработает ПОСЛЕ гидратации через changeLanguage
-  lng: 'ru', // Всегда рендерим русский при SSR и первоначальной гидратации
+  lng: 'ru', 
   fallbackLng: 'ru',
   supportedLngs: ['en', 'ru'],
   debug: import.meta.env.DEV,
 
   detection: {
-    order: ['localStorage', 'navigator'],
-    caches: ['localStorage'],
+    order: ['cookie', 'localStorage', 'navigator'],
+    caches: ['cookie', 'localStorage'],
+    lookupCookie: 'i18next_lang', // Название нашего cookie
+    cookieMinutes: 60 * 24 * 30, // Срок жизни cookie - 30 дней
+    cookieOptions: { path: '/' },
   },
   
   interpolation: {
@@ -48,19 +47,5 @@ i18nInstance.init({
 
   partialBundledLanguages: true,
 });
-
-// ✅ ИСПРАВЛЕНИЕ: На клиенте после гидратации применяем детектированный язык
-if (!import.meta.env.SSR && typeof window !== 'undefined') {
-  // Откладываем детектирование до следующего тика, чтобы избежать hydration mismatch
-  setTimeout(() => {
-    const detectedLang = 
-      localStorage.getItem('i18nextLng') || 
-      navigator.language.split('-')[0];
-    
-    if (detectedLang && ['en', 'ru'].includes(detectedLang) && detectedLang !== i18n.language) {
-      i18n.changeLanguage(detectedLang);
-    }
-  }, 0);
-}
 
 export default i18n;
