@@ -8,13 +8,10 @@ export default defineConfig({
     appDirectory: 'src',
   },
   server: {
-    // ✅ ИЗМЕНЕНИЕ: Меняем пресет на 'vercel'
-    // Это переключит сборку для развертывания на Vercel Serverless Functions
     preset: 'vercel',
   },
   vite: {
     plugins: [
-      // this is the plugin that enables path aliases
       viteTsConfigPaths({
         projects: ['./tsconfig.json'],
       }),
