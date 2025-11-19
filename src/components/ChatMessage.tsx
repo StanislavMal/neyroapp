@@ -15,8 +15,7 @@ import type { Message } from '../lib/ai/types';
 import { CodeBlock } from './CodeBlock';
 import { TableBlock } from './TableBlock';
 import { InlineCode } from './InlineCode';
-// ✅ Импортируем наш новый компонент
-import { TypingIndicator } from './TypingIndicator';
+import { TypingDots } from './TypingDots';
 import { useCopyToClipboard } from '../hooks';
 import { 
   htmlToPlainText, 
@@ -220,16 +219,23 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         ) : (
           <div ref={messageContentRef}>
-            <ReactMarkdown
-              className="prose dark:prose-invert max-w-none select-text"
-              remarkPlugins={remarkPlugins}
-              rehypePlugins={rehypePlugins}
-              components={markdownComponents}
-            >
-              {message.content}
-            </ReactMarkdown>
-            {/* ✅ Заменяем Cursor на TypingIndicator */}
-            {isStreaming && <TypingIndicator />}
+            {/* ✅ Если контент пустой и идет стриминг, показываем только точки */}
+            {isStreaming && !message.content ? (
+              <TypingDots />
+            ) : (
+              <>
+                <ReactMarkdown
+                  className="prose dark:prose-invert max-w-none select-text"
+                  remarkPlugins={remarkPlugins}
+                  rehypePlugins={rehypePlugins}
+                  components={markdownComponents}
+                >
+                  {message.content}
+                </ReactMarkdown>
+                {/* ✅ Если контент есть и идет стриминг, показываем точки после него */}
+                {isStreaming && <TypingDots />}
+              </>
+            )}
           </div>
         )}
       </div>

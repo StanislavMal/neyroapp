@@ -17,4 +17,4 @@ export { StreamingMessage } from './StreamingMessage';
 export { ModelSelector } from './ModelSelector';
 export { DesktopLayout } from './layouts/DesktopLayout';
 export { MobileLayout } from './layouts/MobileLayout';
-export { TypingIndicator } from './TypingIndicator'; 
+export { TypingDots } from './TypingDots';
