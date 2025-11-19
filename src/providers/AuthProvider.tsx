@@ -9,18 +9,21 @@ type AuthContextType = {
   user: User | null;
   session: Session | null;
   isInitialized: boolean;
+  isLoading: boolean; // ✅ ДОБАВЛЕНО: isLoading теперь часть контекста
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   isInitialized: false,
+  isLoading: true, // ✅ ДОБАВЛЕНО: Начальное значение
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [isLoading, setIsLoading] = useState(true); // ✅ ДОБАВЛЕНО: Состояние загрузки
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -37,11 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setSession(null);
     };
 
+    setIsLoading(true);
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
       if (mounted) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
         setIsInitialized(true);
+        setIsLoading(false); // ✅ ИЗМЕНЕНИЕ: Загрузка завершена
       }
     });
 
@@ -49,6 +54,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (_event, newSession) => {
         if (!mounted) return;
 
+        setIsLoading(true); // ✅ ИЗМЕНЕНИЕ: Начинаем загрузку при смене состояния
         const newUserId = newSession?.user?.id;
         const currentUserId = userRef.current?.id;
 
@@ -62,6 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!isInitialized) {
           setIsInitialized(true);
         }
+        setIsLoading(false); // ✅ ИЗМЕНЕНИЕ: Загрузка завершена
       }
     );
 
@@ -75,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     isInitialized,
+    isLoading, // ✅ ДОБАВЛЕНО: Передаем в контекст
   };
 
   return <AuthContext.Provider value={value}>{isInitialized ? children : null}</AuthContext.Provider>;

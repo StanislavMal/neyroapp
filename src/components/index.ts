@@ -15,3 +15,5 @@ export { Footer } from './Footer';
 export { AuthGuard } from './AuthGuard';
 export { StreamingMessage } from './StreamingMessage';
 export { ModelSelector } from './ModelSelector';
+export { DesktopLayout } from './layouts/DesktopLayout';
+export { MobileLayout } from './layouts/MobileLayout';
