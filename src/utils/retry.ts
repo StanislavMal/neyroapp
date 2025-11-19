@@ -20,8 +20,9 @@ const DEFAULT_OPTIONS: Required<RetryOptions> = {
   onRetry: () => {},
 };
 
+// ✅ ИЗМЕНЕНИЕ: Сигнатура теперь принимает PromiseLike и корректно выводит тип
 export async function retryAsync<T>(
-  fn: () => Promise<T>,
+  fn: () => PromiseLike<T>,
   options: RetryOptions = {}
 ): Promise<T> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -29,6 +30,7 @@ export async function retryAsync<T>(
   
   for (let attempt = 1; attempt <= opts.maxAttempts; attempt++) {
     try {
+      // ✅ ИЗМЕНЕНИЕ: Мы используем await, который работает и с Promise, и с PromiseLike
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
