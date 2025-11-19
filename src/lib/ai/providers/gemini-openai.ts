@@ -144,7 +144,7 @@ export class GeminiOpenAIProvider implements AIProvider {
       messages: openAIMessages,
       stream: true,
       temperature: config.temperature || 0.7,
-      max_tokens: config.maxTokens || 8192,
+      max_tokens: config.maxTokens,
     };
 
     if (config.model?.includes('2.5')) {
@@ -222,7 +222,7 @@ export class GeminiOpenAIProvider implements AIProvider {
         provider: 'gemini',
         description: 'Latest Flash model with reasoning capabilities',
         contextWindow: 1000000,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 16384,
         supportsFunctions: true,
         supportsVision: true,
         supportsAudio: true,
@@ -237,7 +237,7 @@ export class GeminiOpenAIProvider implements AIProvider {
         provider: 'gemini',
         description: 'Most capable model with advanced reasoning',
         contextWindow: 2000000,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 65536,
         supportsFunctions: true,
         supportsVision: true,
         supportsAudio: true,

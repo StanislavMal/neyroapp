@@ -1,4 +1,4 @@
-// 📄 src/lib/ai/providers/deepseek-openai.ts (Продолжение)
+// 📄 src/lib/ai/providers/deepseek-openai.ts
 
 import OpenAI from 'openai';
 import type { AIProvider, Message, AIModel, AIProviderConfig, StreamChunk } from '../types';
@@ -144,7 +144,7 @@ export class DeepSeekOpenAIProvider implements AIProvider {
       messages: openAIMessages,
       stream: true,
       temperature: config.temperature || 0.7,
-      max_tokens: config.maxTokens || 8192,
+      max_tokens: config.maxTokens,
     };
 
     try {
@@ -226,7 +226,7 @@ export class DeepSeekOpenAIProvider implements AIProvider {
         provider: 'deepseek',
         description: 'DeepSeek R1 - Enhanced reasoning model',
         contextWindow: 128000,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 64000,
         supportsFunctions: true,
         supportsVision: false,
         supportsAudio: false,

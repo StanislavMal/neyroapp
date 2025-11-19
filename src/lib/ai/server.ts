@@ -27,6 +27,12 @@ export const streamChat = createServerFn({
   .handler(async ({ data }) => {
     try {
       const provider = AIProviderFactory.getProvider(data.provider);
+
+      const availableModels = provider.getAvailableModels();
+      const selectedModel = availableModels.find(m => m.id === data.model);
+      const maxOutputTokens = selectedModel?.maxOutputTokens || data.maxTokens || 8192;
+      
+      console.log(`[streamChat] Using model '${data.model}' with max_tokens: ${maxOutputTokens}`);
       
       const fullSystemInstruction = [
         data.systemInstruction,
@@ -36,7 +42,7 @@ export const streamChat = createServerFn({
       const finalMessages: Message[] = [];
       if (fullSystemInstruction) {
         finalMessages.push({
-          id: 'system-instruction', // ID не важен, т.к. это не сохраняется
+          id: 'system-instruction',
           role: 'system',
           content: fullSystemInstruction,
         });
@@ -47,7 +53,7 @@ export const streamChat = createServerFn({
       const config: Partial<AIProviderConfig> = {
         model: data.model,
         temperature: data.temperature,
-        maxTokens: data.maxTokens,
+        maxTokens: maxOutputTokens,
         reasoningEffort: data.reasoningEffort,
       };
 
