@@ -2,8 +2,7 @@
 
 import { supabase } from '../utils/supabase';
 import { retryAsync } from '../utils/retry';
-// ✅ ИЗМЕНЕНИЕ: Удалены неиспользуемые типы Postgrest...
-import type { UserSettings } from '../store'; // ✅ ИЗМЕНЕНИЕ: Удалены неиспользуемые Prompt, Conversation
+import type { UserSettings } from '../store';
 import type { Message } from '../lib/ai/types';
 
 /**
@@ -126,10 +125,14 @@ export function deleteMessages(ids: string[]) {
 }
 
 export function duplicateMessages(newConversationId: string, messagesToCopy: any[]) {
-  const newMessages = messagesToCopy.map((msg: any) => ({
-    ...msg,
-    conversation_id: newConversationId,
-  }));
+  const newMessages = messagesToCopy.map((msg: any) => {
+    // Деструктурируем старый id, чтобы он не попал в новый объект
+    const { id, ...restOfMsg } = msg;
+    return {
+      ...restOfMsg,
+      conversation_id: newConversationId,
+    };
+  });
   return retryAsync(() => 
     supabase.from('messages').insert(newMessages)
   );
