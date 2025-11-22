@@ -29,7 +29,6 @@ const loadMessagesForConversation = async (conversationId: string) => {
       attachments: m.attachments as Attachment[] | undefined,
     })) as Message[];
 
-    // Собираем все пути к файлам для получения подписанных URL
     const attachmentPaths = messages
       .flatMap(m => m.attachments || [])
       .map(att => att.path)
@@ -39,14 +38,13 @@ const loadMessagesForConversation = async (conversationId: string) => {
       const signedUrls = await api.createSignedUrls(attachmentPaths);
       const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
 
-      // Обновляем URL в сообщениях
       messages = messages.map(m => {
         if (!m.attachments) return m;
         return {
           ...m,
           attachments: m.attachments.map(att => ({
             ...att,
-            url: urlMap.get(att.path) || att.url, // Используем новый URL, если он есть
+            url: urlMap.get(att.path) || att.url,
           })),
         };
       });
@@ -117,11 +115,11 @@ export function useSettings() {
           const { error } = await api.updateSettings(user.id, updated);
           if (error) {
               console.error("Ошибка обновления настроек:", error);
-              actions.setSettings(settings); // Откатываем изменения в сторе
+              actions.setSettings(settings);
           }
         } catch (error) {
           console.error("Не удалось обновить настройки после всех попыток:", error);
-          actions.setSettings(settings); // Откатываем изменения
+          actions.setSettings(settings);
         }
     }, [user, settings]);
 
@@ -266,7 +264,22 @@ export function useConversations() {
       }
   }, []);
 
+  // ✅ ИЗМЕНЕНИЕ: Логика удаления беседы
   const deleteConversation = useCallback(async (id: string) => {
+      // Сначала получаем сообщения, чтобы найти вложения
+      const messagesInConv = store.state.messageCache[id] || (await api.fetchMessages(id)).data || [];
+      
+      const attachmentPaths = messagesInConv
+        .flatMap((msg: Message) => msg.attachments || [])
+        .map((att: Attachment) => att.path)
+        .filter(Boolean);
+
+      // Если есть вложения, удаляем их из Storage
+      if (attachmentPaths.length > 0) {
+        await api.deleteAttachments(attachmentPaths);
+      }
+
+      // Затем удаляем беседу и сообщения из состояния и БД
       actions.deleteConversation(id);
       try {
         const { error } = await api.deleteConversation(id);
@@ -289,6 +302,7 @@ export function useConversations() {
     }
   }, [user]);
 
+  // ✅ ИЗМЕНЕНИЕ: Логика редактирования и регенерации
   const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
     const convId = selectors.getCurrentConversationId(store.state);
     if (!convId) return null;
@@ -300,11 +314,23 @@ export function useConversations() {
       return null;
     }
 
-    const idsToDelete = originalMessages.slice(originalMessageIndex + 1).map(m => m.id);
+    const messagesToDelete = originalMessages.slice(originalMessageIndex + 1);
+    const idsToDelete = messagesToDelete.map(m => m.id);
+
+    // Собираем пути к файлам для удаляемых сообщений
+    const attachmentPathsToDelete = messagesToDelete
+      .flatMap(msg => msg.attachments || [])
+      .map(att => att.path)
+      .filter(Boolean);
+
     actions.editCachedMessage(convId, messageId, newContent);
     
     try {
       const promises = [];
+      // Добавляем удаление файлов в Storage в список параллельных задач
+      if (attachmentPathsToDelete.length > 0) {
+        promises.push(api.deleteAttachments(attachmentPathsToDelete));
+      }
       if (idsToDelete.length > 0) {
         promises.push(api.deleteMessages(idsToDelete));
       }
@@ -340,7 +366,7 @@ export function useConversations() {
 
       const { error: insertError } = await api.duplicateMessages(newConvData.id, messagesToCopy);
       if (insertError) {
-        await api.deleteConversation(newConvData.id); // Очистка
+        await api.deleteConversation(newConvData.id);
         throw new Error('Не удалось вставить дублированные сообщения');
       }
       

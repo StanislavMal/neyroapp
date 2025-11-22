@@ -12,7 +12,6 @@ import type { Message } from '../lib/ai/types';
  */
 
 // --- Settings (Profiles) ---
-// ... (код без изменений) ...
 export function fetchSettings(userId: string) {
   return retryAsync(() => 
     supabase.from('profiles').select('settings').eq('id', userId).single()
@@ -26,7 +25,6 @@ export function updateSettings(userId: string, settings: UserSettings) {
 }
 
 // --- Prompts ---
-// ... (код без изменений) ...
 export function fetchPrompts(userId: string) {
   return retryAsync(() => 
     supabase.from('prompts').select('*').eq('user_id', userId).order('created_at')
@@ -63,7 +61,6 @@ export async function setPromptActive(userId: string, id: string, isActive: bool
 }
 
 // --- Conversations ---
-// ... (код без изменений) ...
 export function fetchConversations(userId: string) {
   return retryAsync(() => 
     supabase.from('conversations').select('*').eq('user_id', userId).order('created_at', { ascending: false })
@@ -89,7 +86,6 @@ export function deleteConversation(id: string) {
 }
 
 // --- Messages ---
-// ... (код без изменений) ...
 export function fetchMessages(conversationId: string) {
   return retryAsync(() => 
     supabase.from('messages').select('*').eq('conversation_id', conversationId).order('created_at', { ascending: true }).order('id', { ascending: true })
@@ -143,12 +139,11 @@ export function duplicateMessages(newConversationId: string, messagesToCopy: any
  * @returns Путь к файлу в Storage
  */
 export async function uploadAttachment(userId: string, file: File): Promise<string> {
-  // ✅ ИСПРАВЛЕНИЕ: Добавлена проверка на наличие имени файла
   if (!file.name) {
     throw new Error('File has no name.');
   }
   
-  const fileExt = file.name.split('.').pop() || 'bin'; // Добавляем fallback расширение
+  const fileExt = file.name.split('.').pop() || 'bin';
   const fileName = `${crypto.randomUUID()}.${fileExt}`;
   const filePath = `${userId}/${fileName}`;
 
@@ -187,4 +182,28 @@ export async function createSignedUrls(paths: string[]): Promise<{ path: string;
     path: item.path,
     signedUrl: item.signedUrl,
   })).filter((item): item is { path: string; signedUrl: string } => !!item.signedUrl);
+}
+
+/**
+ * Удаляет файлы из Supabase Storage.
+ * @param paths Массив путей к файлам для удаления
+ */
+export async function deleteAttachments(paths: string[]) {
+  if (paths.length === 0) {
+    return { data: [], error: null };
+  }
+
+  const { data, error } = await retryAsync(() =>
+    supabase.storage
+      .from('message_attachments')
+      .remove(paths)
+  );
+
+  if (error) {
+    console.error("Ошибка удаления файлов из Storage:", error);
+  } else {
+    console.log("Успешно удалены файлы из Storage:", paths);
+  }
+
+  return { data, error };
 }
