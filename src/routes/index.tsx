@@ -84,18 +84,38 @@ function Home() {
     }
   }, [user, isInitialized, appState, navigate, loadConversations, loadPrompts, loadSettings]);
 
-  // ✅ ПЕРЕНЕСЕНО: Подписки теперь обрабатываются специальным хуком
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
 
   // --- Обработчики событий ---
   const handleSend = useCallback(
-    async (message: string) => {
-      if (!message.trim() || isLoading) return;
+    async (message: string, attachment?: File | null) => {
+      // 🪵 LOG: Проверяем, что пришло в главный обработчик
+      console.log('🪵 LOG: [Home/handleSend] Получено сообщение:', message, 'и вложение:', attachment);
+
+      const textMessage = message || '';
+      
+      if (!textMessage.trim() && !attachment || isLoading) {
+        // 🪵 LOG: Сообщение пустое и нет вложения, отправка отменена
+        console.log('🪵 LOG: [Home/handleSend] Отправка отменена (пустое сообщение).');
+        return;
+      }
+      
       lockToBottom();      
       footerRef.current?.resetInput();
-      const words = message.trim().split(/\s+/);
-      const title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
-      await sendMessage(message, title);
+      
+      let title: string;
+      const trimmedMessage = textMessage.trim();
+      
+      if (trimmedMessage) {
+        const words = trimmedMessage.split(/\s+/);
+        title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
+      } else {
+        title = "Новое изображение";
+      }
+      
+      // 🪵 LOG: Передаем данные в хук useChat
+      console.log('🪵 LOG: [Home/handleSend] Вызов sendMessage с заголовком:', title);
+      await sendMessage(textMessage, attachment, title);
     },
     [isLoading, sendMessage, lockToBottom]
   );

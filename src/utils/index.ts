@@ -5,3 +5,4 @@ export * from './retry';
 export * from './validation';
 export * from './markdown';
 export * from './markdown-sanitize';
+export * from './image-compression';

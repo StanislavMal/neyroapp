@@ -219,20 +219,39 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         ) : (
           <div ref={messageContentRef}>
-            {/* ✅ Если контент пустой и идет стриминг, показываем только точки */}
+            {/* ✅ РЕНДЕРИНГ ВЛОЖЕНИЙ */}
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="my-2 flex flex-wrap gap-2">
+                {message.attachments.map((att, index) =>
+                  att.type === 'image' ? (
+                    <a key={index} href={att.url} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={att.url}
+                        alt={`Attachment ${index + 1}`}
+                        className="max-w-xs max-h-64 rounded-lg object-cover cursor-pointer transition-opacity hover:opacity-80"
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : null
+                )}
+              </div>
+            )}
+            
+            {/* ✅ РЕНДЕРИНГ ТЕКСТА */}
             {isStreaming && !message.content ? (
               <TypingDots />
             ) : (
               <>
-                <ReactMarkdown
-                  className="prose dark:prose-invert max-w-none select-text"
-                  remarkPlugins={remarkPlugins}
-                  rehypePlugins={rehypePlugins}
-                  components={markdownComponents}
-                >
-                  {message.content}
-                </ReactMarkdown>
-                {/* ✅ Если контент есть и идет стриминг, показываем точки после него */}
+                {message.content && (
+                  <ReactMarkdown
+                    className="prose dark:prose-invert max-w-none select-text"
+                    remarkPlugins={remarkPlugins}
+                    rehypePlugins={rehypePlugins}
+                    components={markdownComponents}
+                  >
+                    {message.content}
+                  </ReactMarkdown>
+                )}
                 {isStreaming && <TypingDots />}
               </>
             )}
@@ -306,6 +325,8 @@ export const ChatMessage = memo(function ChatMessage({
     prevProps.isEditing === nextProps.isEditing &&
     prevProps.isLoading === nextProps.isLoading &&
     prevProps.showRegenerateButton === nextProps.showRegenerateButton &&
-    prevProps.isStreaming === nextProps.isStreaming
+    prevProps.isStreaming === nextProps.isStreaming &&
+    // Добавляем проверку вложений для корректной мемоизации
+    JSON.stringify(prevProps.message.attachments) === JSON.stringify(nextProps.message.attachments)
   );
 });

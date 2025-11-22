@@ -2,9 +2,32 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
-import type { Message } from '../lib/ai/types';
+import type { Message, Attachment, MessageContent } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
 import { selectors, store } from '../store/store';
+import { useAuth } from '../providers/AuthProvider';
+import * as api from '../services/supabase';
+import { compressImage } from '../utils/image-compression';
+
+const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image from URL: ${url}`);
+  }
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(blob);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const [header, data] = result.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] || blob.type;
+      resolve({ mimeType, data });
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
+
 
 interface UseChatOptions {
   onResponseStart?: () => void;
@@ -13,6 +36,7 @@ interface UseChatOptions {
 }
 
 export function useChat(options: UseChatOptions = {}) {
+  const { user } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<Message | null>(null);
@@ -41,35 +65,25 @@ export function useChat(options: UseChatOptions = {}) {
 
   const startTypingAnimation = useCallback(() => {
     if (intervalIdRef.current) clearInterval(intervalIdRef.current);
-
     const streamSpeed = settings?.streamSpeed || 30;
     const updateIntervalMs = 33;
     const charsPerTick = Math.max(1, Math.round((streamSpeed * updateIntervalMs) / 1000));
-
     intervalIdRef.current = setInterval(() => {
       if (textQueueRef.current.length > 0) {
         const charsToAdd = textQueueRef.current.substring(0, charsPerTick);
         textQueueRef.current = textQueueRef.current.substring(charsPerTick);
         displayedTextRef.current += charsToAdd;
-        
-        setPendingMessage(prev => 
-          prev ? { ...prev, content: displayedTextRef.current } : prev
-        );
-
+        setPendingMessage(prev => prev ? { ...prev, content: displayedTextRef.current } : prev);
       } else if (!isStreamActiveRef.current) {
-        if (intervalIdRef.current) {
-          clearInterval(intervalIdRef.current);
-          intervalIdRef.current = null;
-        }
+        if (intervalIdRef.current) clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
       }
     }, updateIntervalMs);
   }, [settings?.streamSpeed]);
 
   const stopTypingAnimation = useCallback(() => {
-    if (intervalIdRef.current) {
-      clearInterval(intervalIdRef.current);
-      intervalIdRef.current = null;
-    }
+    if (intervalIdRef.current) clearInterval(intervalIdRef.current);
+    intervalIdRef.current = null;
     isStreamActiveRef.current = false;
   }, []);
 
@@ -77,7 +91,6 @@ export function useChat(options: UseChatOptions = {}) {
     bufferRef.current += data;
     const lines = bufferRef.current.split('\n');
     bufferRef.current = lines.pop() || '';
-    
     const chunks = [];
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -91,7 +104,7 @@ export function useChat(options: UseChatOptions = {}) {
   }, []);
 
   const processAIResponse = useCallback(
-    async (messageHistory: Message[]) => {
+    async (messageHistoryForAI: { role: 'user' | 'assistant' | 'system', content: MessageContent }[]) => {
       if (!settings) {
         const errorMsg = "User settings not loaded.";
         setError(errorMsg);
@@ -101,7 +114,6 @@ export function useChat(options: UseChatOptions = {}) {
 
       const requestId = crypto.randomUUID();
       activeRequestIdRef.current = requestId;
-
       bufferRef.current = '';
       textQueueRef.current = '';
       displayedTextRef.current = '';
@@ -112,7 +124,7 @@ export function useChat(options: UseChatOptions = {}) {
         const provider = settings.model.startsWith('deepseek') ? 'deepseek' : 'gemini';
         const response = await streamChat({
           data: {
-            messages: messageHistory,
+            messages: messageHistoryForAI,
             provider,
             model: settings.model,
             systemInstruction: settings.system_instruction,
@@ -127,37 +139,24 @@ export function useChat(options: UseChatOptions = {}) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let animationStarted = false;
-
         while (true) {
           if (activeRequestIdRef.current !== requestId) {
             reader.cancel();
             return null;
           }
-
           const { value, done } = await reader.read();
           if (done) {
             isStreamActiveRef.current = false;
             break;
           }
-
           const rawText = decoder.decode(value, { stream: true });
           const chunks = parseNDJSON(rawText);
-          
           for (const chunk of chunks) {
-            // ✅ ИЗМЕНЕНИЕ: Игнорируем heartbeat сообщения
-            if (chunk.type === 'heartbeat') {
-              console.log('Heartbeat received');
-              continue;
-            }
-            
+            if (chunk.type === 'heartbeat') continue;
             if (chunk.error) throw new Error(chunk.error);
             if (chunk.text) {
               if (!animationStarted) {
-                setPendingMessage({ 
-                  id: 'pending-assistant-message', 
-                  role: 'assistant', 
-                  content: '' 
-                });
+                setPendingMessage({ id: 'pending-assistant-message', role: 'assistant', content: '' });
                 isStreamActiveRef.current = true;
                 startTypingAnimation();
                 setIsLoading(false);
@@ -168,24 +167,14 @@ export function useChat(options: UseChatOptions = {}) {
             }
           }
         }
-        
         await new Promise<void>((resolve) => {
           const checkCompletion = () => {
-            if (textQueueRef.current.length === 0 && !intervalIdRef.current) {
-              resolve();
-            } else {
-              setTimeout(checkCompletion, 50);
-            }
+            if (textQueueRef.current.length === 0 && !intervalIdRef.current) resolve();
+            else setTimeout(checkCompletion, 50);
           };
           checkCompletion();
         });
-        
-        return { 
-          id: crypto.randomUUID(), 
-          role: 'assistant' as const, 
-          content: displayedTextRef.current 
-        };
-
+        return { id: crypto.randomUUID(), role: 'assistant' as const, content: displayedTextRef.current };
       } catch (error) {
         if (activeRequestIdRef.current !== requestId) return null;
         const errorMsg = error instanceof Error ? error.message : 'An error occurred';
@@ -198,30 +187,92 @@ export function useChat(options: UseChatOptions = {}) {
     },
     [settings, activePrompt, startTypingAnimation, stopTypingAnimation, options, parseNDJSON]
   );
+
+  const prepareHistoryForAI = async (messages: Message[]): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+    const historyForAI: { role: 'user' | 'assistant', content: MessageContent }[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') continue;
+
+      if (msg.attachments && msg.attachments.length > 0) {
+        const contentParts: ({ type: 'text', text: string } | { type: 'image_url', image_url: { url: string } })[] = [];
+        
+        if (msg.content) {
+          contentParts.push({ type: 'text', text: msg.content });
+        }
+
+        for (const attachment of msg.attachments) {
+          if (attachment.type === 'image' && attachment.url) {
+            try {
+              const { mimeType, data } = await urlToBase64(attachment.url);
+              contentParts.push({
+                type: 'image_url',
+                image_url: { url: `data:${mimeType};base64,${data}` },
+              });
+            } catch (e) {
+              console.error(`Failed to convert attachment URL to base64 for message ${msg.id}`, e);
+            }
+          }
+        }
+        historyForAI.push({ role: msg.role, content: contentParts });
+      } else {
+        historyForAI.push({ role: msg.role, content: msg.content });
+      }
+    }
+    return historyForAI;
+  };
   
   const sendMessage = useCallback(
-    async (content: string, conversationTitle?: string) => {
-      if (!content.trim() || isLoading) return;
+    async (content: string, attachmentFile?: File | null, conversationTitle?: string) => {
+      if ((!content.trim() && !attachmentFile) || isLoading || !user) return;
 
       setIsLoading(true);
       setError(null);
       setPendingMessage(null);
       
-      const userMessage: Message = { id: crypto.randomUUID(), role: 'user', content: content.trim() };
-
+      let attachmentsForUI: Attachment[] = [];
+      
       try {
+        if (attachmentFile) {
+          // ✅ ИЗМЕНЕНИЕ: Сжимаем изображение перед загрузкой
+          const fileToUpload = await compressImage(attachmentFile);
+
+          const filePath = await api.uploadAttachment(user.id, fileToUpload);
+          const signedUrls = await api.createSignedUrls([filePath]);
+
+          if (signedUrls.length > 0) {
+            attachmentsForUI.push({
+              type: 'image',
+              path: filePath,
+              url: signedUrls[0].signedUrl,
+            });
+          } else {
+            throw new Error("Не удалось получить URL для загруженного файла.");
+          }
+        }
+
+        const userMessage: Message = { 
+          id: crypto.randomUUID(), 
+          role: 'user', 
+          content: content.trim(),
+          attachments: attachmentsForUI,
+        };
+
         let convId = currentConversationId;
         if (!convId) {
-          const title = conversationTitle || content.slice(0, 30) + '...';
+          const title = conversationTitle || content.slice(0, 30) || "Image Message";
           convId = await createNewConversation(title);
           if (!convId) throw new Error('Failed to create conversation');
         }
         
         await addMessage(convId, userMessage);
         await new Promise(resolve => setTimeout(resolve, 10));
+        
         const currentMessages = selectors.getCurrentMessages(store.state);
         
-        const aiResponse = await processAIResponse(currentMessages);
+        const messageHistoryForAI = await prepareHistoryForAI(currentMessages);
+
+        const aiResponse = await processAIResponse(messageHistoryForAI);
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
@@ -238,29 +289,27 @@ export function useChat(options: UseChatOptions = {}) {
         setIsLoading(false);
       }
     },
-    [isLoading, currentConversationId, createNewConversation, addMessage, processAIResponse, options]
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, processAIResponse, options]
   );
 
   const editAndRegenerate = useCallback(
     async (messageId: string, newContent: string) => {
       if (!currentConversationId || isLoading) return;
-
       setIsLoading(true);
       setError(null);
       setPendingMessage(null);
-
       try {
         const updatedHistory = await editMessageAndUpdate(messageId, newContent);
         if (!updatedHistory) throw new Error("Failed to update message");
-
-        const aiResponse = await processAIResponse(updatedHistory);
         
+        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory);
+
+        const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
           await addMessage(currentConversationId, aiResponse);
           options.onResponseComplete?.(aiResponse);
         }
-
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'An error occurred during edit';
         setError(errorMsg);
