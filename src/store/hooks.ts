@@ -3,12 +3,12 @@
 import { useCallback } from 'react';
 import { useStore } from '@tanstack/react-store';
 import { actions, selectors, store, type Conversation, type Prompt, type UserSettings } from './store';
-import type { Message } from '../lib/ai/types';
+import type { Message, Attachment } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 
 /**
- * Загружает сообщения для беседы, если их нет в кэше.
+ * Загружает сообщения и получает подписанные URL для вложений.
  */
 const loadMessagesForConversation = async (conversationId: string) => {
   if (store.state.messageCache[conversationId]) {
@@ -20,19 +20,41 @@ const loadMessagesForConversation = async (conversationId: string) => {
   try {
     const { data, error } = await api.fetchMessages(conversationId);
     
-    if (error) {
-      console.error('Ошибка загрузки сообщений:', error);
-      actions.setCachedMessages(conversationId, []);
-    } else {
-      const formattedMessages = data.map((m: any) => ({
-        id: m.id,
-        role: m.role as 'user' | 'assistant' | 'system',
-        content: m.content
-      })) as Message[];
-      
-      console.log('[loadMessages] Загружено сообщений:', formattedMessages.length);
-      actions.setCachedMessages(conversationId, formattedMessages);
+    if (error) throw error;
+
+    let messages = data.map((m: any) => ({
+      id: m.id,
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: m.content,
+      attachments: m.attachments as Attachment[] | undefined,
+    })) as Message[];
+
+    // Собираем все пути к файлам для получения подписанных URL
+    const attachmentPaths = messages
+      .flatMap(m => m.attachments || [])
+      .map(att => att.path)
+      .filter(Boolean);
+
+    if (attachmentPaths.length > 0) {
+      const signedUrls = await api.createSignedUrls(attachmentPaths);
+      const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
+
+      // Обновляем URL в сообщениях
+      messages = messages.map(m => {
+        if (!m.attachments) return m;
+        return {
+          ...m,
+          attachments: m.attachments.map(att => ({
+            ...att,
+            url: urlMap.get(att.path) || att.url, // Используем новый URL, если он есть
+          })),
+        };
+      });
     }
+    
+    console.log('[loadMessages] Загружено сообщений:', messages.length);
+    actions.setCachedMessages(conversationId, messages);
+
   } catch (error) {
     console.error('Не удалось загрузить сообщения после всех попыток:', error);
     actions.setCachedMessages(conversationId, []);

@@ -2,10 +2,11 @@
 
 import { createServerFn } from '@tanstack/react-start';
 import { AIProviderFactory } from './provider-factory';
-import type { Message, AIProviderConfig, StreamChunk } from './types';
+// ✅ ИЗМЕНЕНИЕ: Убран неиспользуемый импорт 'Message'
+import type { AIProviderConfig, StreamChunk, MessageContent } from './types';
 
 export interface ChatRequest {
-  messages: Message[];
+  messages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[];
   provider: string;
   model: string;
   systemInstruction?: string;
@@ -39,15 +40,13 @@ export const streamChat = createServerFn({
         data.activePromptContent
       ].filter(Boolean).join('\n\n');
       
-      const finalMessages: Message[] = [];
+      const finalMessages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[] = [];
       if (fullSystemInstruction) {
         finalMessages.push({
-          id: 'system-instruction',
           role: 'system',
           content: fullSystemInstruction,
         });
       }
-      // Добавляем остальные сообщения, отфильтровав случайные системные сообщения из истории
       finalMessages.push(...data.messages.filter(m => m.role !== 'system'));
 
       const config: Partial<AIProviderConfig> = {

@@ -1,7 +1,7 @@
 // 📄 src/lib/ai/providers/base-openai-provider.ts
 
 import OpenAI from 'openai';
-import type { AIProvider, Message, AIModel, AIProviderConfig, StreamChunk } from '../types';
+import type { AIProvider, AIModel, AIProviderConfig, StreamChunk, MessageContent } from '../types';
 
 // Интерфейс для отслеживания состояния каждого API-ключа
 interface KeyStatus {
@@ -19,18 +19,17 @@ export abstract class BaseOpenAIProvider implements AIProvider {
   abstract name: string;
   abstract getAvailableModels(): AIModel[];
   protected abstract readonly baseURL: string;
-  protected readonly providerName: string; // ✅ ИЗМЕНЕНИЕ: Убрали abstract
+  protected readonly providerName: string;
 
   private keys: KeyStatus[];
   private currentKeyIndex = 0;
   
-  private readonly MAX_FAILURES = 3; // Макс. ошибок до временной блокировки ключа
-  private readonly DISABLE_DURATION = 5 * 60 * 1000; // 5 минут
+  private readonly MAX_FAILURES = 3;
+  private readonly DISABLE_DURATION = 5 * 60 * 1000;
 
   constructor(apiKeyPrefix: string, providerName: string) {
     this.providerName = providerName;
 
-    // Находим все ключи в переменных окружения по префиксу (напр. 'GEMINI_API_KEY_')
     const apiKeys = Object.keys(process.env)
       .filter(key => key.startsWith(apiKeyPrefix) && process.env[key])
       .map(key => process.env[key] as string);
@@ -49,13 +48,9 @@ export abstract class BaseOpenAIProvider implements AIProvider {
     console.log(`[${this.providerName}Provider] Инициализирован с ${this.keys.length} API-ключами`);
   }
 
-  /**
-   * Получает следующий доступный API-ключ из пула.
-   */
   private getNextApiKey(): string {
     const now = Date.now();
     
-    // Проверяем, не пора ли снова включить заблокированные ключи
     this.keys.forEach(keyStatus => {
       if (keyStatus.isDisabled && keyStatus.lastFailure) {
         if (now - keyStatus.lastFailure > this.DISABLE_DURATION) {
@@ -69,7 +64,6 @@ export abstract class BaseOpenAIProvider implements AIProvider {
 
     const activeKeys = this.keys.filter(k => !k.isDisabled);
     
-    // Если все ключи заблокированы, принудительно активируем самый старый
     if (activeKeys.length === 0) {
       const oldestDisabled = this.keys.reduce((oldest, current) => {
         if (!current.lastFailure) return oldest;
@@ -85,7 +79,6 @@ export abstract class BaseOpenAIProvider implements AIProvider {
       return oldestDisabled.key;
     }
 
-    // Ищем следующий активный ключ
     let attempts = 0;
     while (attempts < this.keys.length) {
       const keyStatus = this.keys[this.currentKeyIndex];
@@ -98,20 +91,15 @@ export abstract class BaseOpenAIProvider implements AIProvider {
       attempts++;
     }
 
-    // Fallback на случай, если что-то пошло не так
     return this.keys[0].key;
   }
 
-  /**
-   * Помечает ключ как сбойный, увеличивая счетчик ошибок.
-   */
   private markKeyAsFailed(apiKey: string, error: Error): void {
     const keyStatus = this.keys.find(k => k.key === apiKey);
     if (!keyStatus) return;
 
     const errorMessage = error.message.toLowerCase();
     
-    // Блокируем ключ только при ошибках, связанных с лимитами или квотой
     const isRateLimitError = 
       errorMessage.includes('429') ||
       errorMessage.includes('rate limit') ||
@@ -137,9 +125,6 @@ export abstract class BaseOpenAIProvider implements AIProvider {
     }
   }
 
-  /**
-   * Сбрасывает счетчик ошибок для ключа после успешного запроса.
-   */
   private markKeyAsSuccess(apiKey: string): void {
     const keyStatus = this.keys.find(k => k.key === apiKey);
     if (!keyStatus) return;
@@ -154,15 +139,10 @@ export abstract class BaseOpenAIProvider implements AIProvider {
   /**
    * Метод-хук для сборки параметров запроса. Может быть переопределен в дочерних классах.
    */
-  protected buildRequestOptions(messages: Message[], config: Partial<AIProviderConfig>): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
-    const openAIMessages = messages.map(msg => ({
-      role: msg.role as 'user' | 'assistant' | 'system',
-      content: msg.content,
-    }));
-
+  protected buildRequestOptions(messages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[], config: Partial<AIProviderConfig>): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
     return {
       model: config.model || this.getAvailableModels()[0].id,
-      messages: openAIMessages,
+      messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
       stream: true,
       temperature: config.temperature || 0.7,
       max_tokens: config.maxTokens,
@@ -172,7 +152,7 @@ export abstract class BaseOpenAIProvider implements AIProvider {
   /**
    * Основной метод для стриминга ответа от AI.
    */
-  async streamChat(messages: Message[], config: Partial<AIProviderConfig>): Promise<ReadableStream<Uint8Array>> {
+  async streamChat(messages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[], config: Partial<AIProviderConfig>): Promise<ReadableStream<Uint8Array>> {
     const apiKey = this.getNextApiKey();
     
     const openai = new OpenAI({

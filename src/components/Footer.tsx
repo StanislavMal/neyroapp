@@ -4,10 +4,12 @@ import { useState, memo, forwardRef, useImperativeHandle, useRef } from 'react';
 import { ChatInput } from './ChatInput';
 
 interface FooterProps {
-  onSend: (message: string) => Promise<void>;
+  onSend: (message: string, attachment?: File | null) => Promise<void>;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
+  // ✅ НОВЫЙ ПРОП
+  canAttachFiles: boolean;
 }
 
 export interface FooterRef {
@@ -15,7 +17,7 @@ export interface FooterRef {
 }
 
 export const Footer = memo(forwardRef<FooterRef, FooterProps>(
-  ({ onSend, isLoading, onFocus, onBlur }, ref) => {
+  ({ onSend, isLoading, onFocus, onBlur, canAttachFiles }, ref) => {
     const [input, setInput] = useState('');
     const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -28,12 +30,12 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
       }
     }));
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent, attachment?: File | null) => {
       e.preventDefault();
       const messageToSend = input.trim();
-      if (!messageToSend || isLoading) return;
+      if (!messageToSend && !attachment || isLoading) return;
       
-      await onSend(messageToSend);
+      await onSend(messageToSend, attachment);
     };
 
     return (
@@ -46,6 +48,8 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
           isLoading={isLoading}
           onFocus={onFocus}
           onBlur={onBlur}
+          // ✅ ПЕРЕДАЕМ ПРОП ДАЛЬШЕ
+          canAttachFiles={canAttachFiles}
         />
       </footer>
     );

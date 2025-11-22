@@ -1,7 +1,7 @@
 // 📄 src/routes/index.tsx
 
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { DesktopLayout, MobileLayout } from '../components';
@@ -14,6 +14,7 @@ import {
   useSupabaseSubscriptions,
 } from '../hooks';
 import { useConversations, useSettings, usePrompts } from '../store';
+import { AIProviderFactory } from '../lib/ai/provider-factory';
 
 export const Route = createFileRoute('/')({
   beforeLoad: async () => {
@@ -43,7 +44,7 @@ function Home() {
   
   // --- Кастомные хуки ---
   const { messages, currentConversationId, loadConversations } = useConversations();
-  const { loadSettings } = useSettings();
+  const { settings, loadSettings } = useSettings();
   const { loadPrompts } = usePrompts();
   
   const { sendMessage, editAndRegenerate, isLoading, error, pendingMessage } = useChat({
@@ -59,6 +60,20 @@ function Home() {
   } = useScrollManagement(messages.length + (pendingMessage ? 1 : 0));
 
   const sidebar = useSidebar();
+
+  // --- Определение возможностей текущей модели ---
+  const canAttachFiles = useMemo(() => {
+    if (!settings) return false;
+    try {
+      const providers = AIProviderFactory.getAllProviders();
+      const allModels = Array.from(providers.values()).flatMap(p => p.getAvailableModels());
+      const currentModel = allModels.find(m => m.id === settings.model);
+      return !!currentModel?.supportsVision;
+    } catch (error) {
+      console.error("Ошибка при определении возможностей модели:", error);
+      return false;
+    }
+  }, [settings]);
 
   // --- Загрузка данных и подписки ---
   useEffect(() => {
@@ -84,18 +99,29 @@ function Home() {
     }
   }, [user, isInitialized, appState, navigate, loadConversations, loadPrompts, loadSettings]);
 
-  // ✅ ПЕРЕНЕСЕНО: Подписки теперь обрабатываются специальным хуком
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
 
   // --- Обработчики событий ---
   const handleSend = useCallback(
-    async (message: string) => {
-      if (!message.trim() || isLoading) return;
+    async (message: string, attachment?: File | null) => {
+      const textMessage = message || '';
+      
+      if (!textMessage.trim() && !attachment || isLoading) return;
+      
       lockToBottom();      
       footerRef.current?.resetInput();
-      const words = message.trim().split(/\s+/);
-      const title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
-      await sendMessage(message, title);
+      
+      let title: string;
+      const trimmedMessage = textMessage.trim();
+      
+      if (trimmedMessage) {
+        const words = trimmedMessage.split(/\s+/);
+        title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
+      } else {
+        title = "Новое изображение";
+      }
+        
+      await sendMessage(textMessage, attachment, title);
     },
     [isLoading, sendMessage, lockToBottom]
   );
@@ -144,17 +170,25 @@ function Home() {
     setIsInputFocused,
   };
 
+  const footerProps = {
+    onSend: handleSend,
+    isLoading: chatAreaProps.isThinking || !!chatAreaProps.pendingMessage,
+    onFocus: () => setIsInputFocused(true),
+    onBlur: () => setIsInputFocused(false),
+    canAttachFiles,
+  };
+
   const layoutProps = {
     sidebarProps,
     chatAreaProps,
     footerRef,
+    footerProps,
     messagesContainerRef,
     contentRef,
     shouldShowScrollDownButton: showScrollDownButton && !isInputFocused && !isModelSelectorOpen,
     isSettingsOpen,
     setIsSettingsOpen,
     setIsModelSelectorOpen,
-    handleSend,
     handleLogout,
     scrollToBottom,
   };

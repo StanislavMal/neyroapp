@@ -16,13 +16,13 @@ interface MobileLayoutProps {
   sidebarProps: any;
   chatAreaProps: any;
   footerRef: RefObject<FooterRef | null>;
+  footerProps: any; // ✅ ОБНОВЛЕНО: Единый объект пропсов для футера
   messagesContainerRef: RefObject<HTMLElement | null>;
-  contentRef: RefObject<HTMLDivElement | null>; // ✅ ИСПРАВЛЕНИЕ: Тип теперь допускает null
+  contentRef: RefObject<HTMLDivElement | null>;
   shouldShowScrollDownButton: boolean;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
   setIsModelSelectorOpen: (isOpen: boolean) => void;
-  handleSend: (message: string) => Promise<void>;
   handleLogout: () => Promise<void>;
   scrollToBottom: () => void;
 }
@@ -31,13 +31,13 @@ export function MobileLayout({
   sidebarProps,
   chatAreaProps,
   footerRef,
+  footerProps, // ✅ ОБНОВЛЕНО
   messagesContainerRef,
   contentRef,
   shouldShowScrollDownButton,
   isSettingsOpen,
   setIsSettingsOpen,
   setIsModelSelectorOpen,
-  handleSend,
   handleLogout,
   scrollToBottom,
 }: MobileLayoutProps) {
@@ -70,12 +70,10 @@ export function MobileLayout({
       {shouldShowScrollDownButton && (
         <ScrollDownButton onClick={scrollToBottom} className="bottom-24 right-4" />
       )}
+      {/* ✅ ОБНОВЛЕНО: Передаем все пропсы для футера через spread-оператор */}
       <Footer
         ref={footerRef}
-        onSend={handleSend}
-        isLoading={chatAreaProps.isThinking || !!chatAreaProps.pendingMessage}
-        onFocus={() => chatAreaProps.setIsInputFocused(true)}
-        onBlur={() => chatAreaProps.setIsInputFocused(false)}
+        {...footerProps}
       />
       <SettingsDialog
         isOpen={isSettingsOpen}

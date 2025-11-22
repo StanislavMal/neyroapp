@@ -15,7 +15,7 @@ interface ModelConfig {
   requiresReasoning?: boolean;
 }
 
-const MODELS: ModelConfig[] = [
+export const MODELS: ModelConfig[] = [
   {
     id: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
