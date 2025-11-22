@@ -2,14 +2,13 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
-// ✅ ИСПРАВЛЕНИЕ: Убран неиспользуемый импорт ImageAttachmentPayload
 import type { Message, Attachment, MessageContent } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
 import { selectors, store } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
+import { compressImage } from '../utils/image-compression';
 
-// ✅ НОВАЯ УТИЛИТА: Конвертация URL в Base64 строку
 const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
   const response = await fetch(url);
   if (!response.ok) {
@@ -235,7 +234,10 @@ export function useChat(options: UseChatOptions = {}) {
       
       try {
         if (attachmentFile) {
-          const filePath = await api.uploadAttachment(user.id, attachmentFile);
+          // ✅ ИЗМЕНЕНИЕ: Сжимаем изображение перед загрузкой
+          const fileToUpload = await compressImage(attachmentFile);
+
+          const filePath = await api.uploadAttachment(user.id, fileToUpload);
           const signedUrls = await api.createSignedUrls([filePath]);
 
           if (signedUrls.length > 0) {
