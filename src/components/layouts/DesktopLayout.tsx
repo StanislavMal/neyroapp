@@ -17,13 +17,13 @@ interface DesktopLayoutProps {
   sidebarProps: any;
   chatAreaProps: any;
   footerRef: RefObject<FooterRef | null>;
-  footerProps: any; // ✅ ОБНОВЛЕНО: Единый объект пропсов для футера
   messagesContainerRef: RefObject<HTMLElement | null>;
-  contentRef: RefObject<HTMLDivElement | null>;
+  contentRef: RefObject<HTMLDivElement | null>; // ✅ ИСПРАВЛЕНИЕ: Тип теперь допускает null
   shouldShowScrollDownButton: boolean;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
   setIsModelSelectorOpen: (isOpen: boolean) => void;
+  handleSend: (message: string) => Promise<void>;
   handleLogout: () => Promise<void>;
   scrollToBottom: () => void;
 }
@@ -32,13 +32,13 @@ export function DesktopLayout({
   sidebarProps,
   chatAreaProps,
   footerRef,
-  footerProps, // ✅ ОБНОВЛЕНО
   messagesContainerRef,
   contentRef,
   shouldShowScrollDownButton,
   isSettingsOpen,
   setIsSettingsOpen,
   setIsModelSelectorOpen,
+  handleSend,
   handleLogout,
   scrollToBottom,
 }: DesktopLayoutProps) {
@@ -73,10 +73,12 @@ export function DesktopLayout({
           {shouldShowScrollDownButton && (
             <ScrollDownButton onClick={scrollToBottom} className="bottom-28 right-10" />
           )}
-          {/* ✅ ОБНОВЛЕНО: Передаем все пропсы для футера через spread-оператор */}
           <Footer
             ref={footerRef}
-            {...footerProps}
+            onSend={handleSend}
+            isLoading={chatAreaProps.isThinking || !!chatAreaProps.pendingMessage}
+            onFocus={() => chatAreaProps.setIsInputFocused(true)}
+            onBlur={() => chatAreaProps.setIsInputFocused(false)}
           />
         </Panel>
       </PanelGroup>

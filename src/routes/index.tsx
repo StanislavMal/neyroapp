@@ -1,7 +1,7 @@
 // 📄 src/routes/index.tsx
 
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { DesktopLayout, MobileLayout } from '../components';
@@ -14,7 +14,6 @@ import {
   useSupabaseSubscriptions,
 } from '../hooks';
 import { useConversations, useSettings, usePrompts } from '../store';
-import { AIProviderFactory } from '../lib/ai/provider-factory';
 
 export const Route = createFileRoute('/')({
   beforeLoad: async () => {
@@ -44,7 +43,7 @@ function Home() {
   
   // --- Кастомные хуки ---
   const { messages, currentConversationId, loadConversations } = useConversations();
-  const { settings, loadSettings } = useSettings();
+  const { loadSettings } = useSettings();
   const { loadPrompts } = usePrompts();
   
   const { sendMessage, editAndRegenerate, isLoading, error, pendingMessage } = useChat({
@@ -60,20 +59,6 @@ function Home() {
   } = useScrollManagement(messages.length + (pendingMessage ? 1 : 0));
 
   const sidebar = useSidebar();
-
-  // --- Определение возможностей текущей модели ---
-  const canAttachFiles = useMemo(() => {
-    if (!settings) return false;
-    try {
-      const providers = AIProviderFactory.getAllProviders();
-      const allModels = Array.from(providers.values()).flatMap(p => p.getAvailableModels());
-      const currentModel = allModels.find(m => m.id === settings.model);
-      return !!currentModel?.supportsVision;
-    } catch (error) {
-      console.error("Ошибка при определении возможностей модели:", error);
-      return false;
-    }
-  }, [settings]);
 
   // --- Загрузка данных и подписки ---
   useEffect(() => {
@@ -104,9 +89,16 @@ function Home() {
   // --- Обработчики событий ---
   const handleSend = useCallback(
     async (message: string, attachment?: File | null) => {
+      // 🪵 LOG: Проверяем, что пришло в главный обработчик
+      console.log('🪵 LOG: [Home/handleSend] Получено сообщение:', message, 'и вложение:', attachment);
+
       const textMessage = message || '';
       
-      if (!textMessage.trim() && !attachment || isLoading) return;
+      if (!textMessage.trim() && !attachment || isLoading) {
+        // 🪵 LOG: Сообщение пустое и нет вложения, отправка отменена
+        console.log('🪵 LOG: [Home/handleSend] Отправка отменена (пустое сообщение).');
+        return;
+      }
       
       lockToBottom();      
       footerRef.current?.resetInput();
@@ -120,7 +112,9 @@ function Home() {
       } else {
         title = "Новое изображение";
       }
-        
+      
+      // 🪵 LOG: Передаем данные в хук useChat
+      console.log('🪵 LOG: [Home/handleSend] Вызов sendMessage с заголовком:', title);
       await sendMessage(textMessage, attachment, title);
     },
     [isLoading, sendMessage, lockToBottom]
@@ -170,25 +164,17 @@ function Home() {
     setIsInputFocused,
   };
 
-  const footerProps = {
-    onSend: handleSend,
-    isLoading: chatAreaProps.isThinking || !!chatAreaProps.pendingMessage,
-    onFocus: () => setIsInputFocused(true),
-    onBlur: () => setIsInputFocused(false),
-    canAttachFiles,
-  };
-
   const layoutProps = {
     sidebarProps,
     chatAreaProps,
     footerRef,
-    footerProps,
     messagesContainerRef,
     contentRef,
     shouldShowScrollDownButton: showScrollDownButton && !isInputFocused && !isModelSelectorOpen,
     isSettingsOpen,
     setIsSettingsOpen,
     setIsModelSelectorOpen,
+    handleSend,
     handleLogout,
     scrollToBottom,
   };

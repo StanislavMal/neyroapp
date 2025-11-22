@@ -12,12 +12,10 @@ interface ChatInputProps {
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
-  // ✅ НОВЫЙ ПРОП: Управляет возможностью прикреплять файлы
-  canAttachFiles?: boolean;
 }
 
 export const ChatInput = forwardRef((
-  { input, setInput, handleSubmit, isLoading, onFocus, onBlur, canAttachFiles = false }: ChatInputProps,
+  { input, setInput, handleSubmit, isLoading, onFocus, onBlur }: ChatInputProps,
   ref: Ref<HTMLTextAreaElement>
 ) => {
   const { t } = useTranslation();
@@ -26,14 +24,6 @@ export const ChatInput = forwardRef((
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // ✅ ЭФФЕКТ: Если пользователь меняет модель на ту, что не поддерживает файлы,
-  // а файл уже был прикреплен, мы его удаляем.
-  useEffect(() => {
-    if (!canAttachFiles) {
-      setAttachment(null);
-    }
-  }, [canAttachFiles]);
 
   useEffect(() => {
     if (!attachment) {
@@ -49,6 +39,8 @@ export const ChatInput = forwardRef((
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
+      // 🪵 LOG: Проверяем, что файл был выбран и установлен в состояние
+      console.log('🪵 LOG: [ChatInput] Файл выбран:', file);
       setAttachment(file);
     }
     if (fileInputRef.current) {
@@ -63,6 +55,8 @@ export const ChatInput = forwardRef((
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachment) return;
+    // 🪵 LOG: Проверяем, что файл передается в handleSubmit
+    console.log('🪵 LOG: [ChatInput] Отправка формы с вложением:', attachment);
     handleSubmit(e, attachment);
     setAttachment(null);
   };
@@ -91,26 +85,21 @@ export const ChatInput = forwardRef((
           </div>
         )}
         <div className="relative flex items-center">
-          {/* ✅ УСЛОВИЕ: Показываем кнопку, только если модель поддерживает файлы */}
-          {canAttachFiles && (
-            <>
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none"
-                aria-label="Attach file"
-              >
-                <Paperclip className="w-4 h-4" />
-              </button>
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/*"
-                className="hidden"
-              />
-            </>
-          )}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none"
+            aria-label="Attach file"
+          >
+            <Paperclip className="w-4 h-4" />
+          </button>
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/*"
+            className="hidden"
+          />
           <textarea
             ref={ref}
             value={input}
@@ -119,8 +108,7 @@ export const ChatInput = forwardRef((
             onFocus={onFocus}
             onBlur={onBlur}
             placeholder={t('chatInputPlaceholder')}
-            // ✅ УСЛОВИЕ: Динамический отступ слева в зависимости от наличия кнопки
-            className={`w-full ${canAttachFiles ? 'pl-10' : 'pl-4'} pr-12 py-2.5 overflow-y-auto text-sm text-white placeholder-gray-400 border rounded-lg shadow-lg resize-none border-orange-500/20 bg-gray-800/50 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-transparent max-h-[200px]`}
+            className="w-full pl-10 pr-12 py-2.5 overflow-y-auto text-sm text-white placeholder-gray-400 border rounded-lg shadow-lg resize-none border-orange-500/20 bg-gray-800/50 focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-transparent max-h-[200px]"
             rows={1}
             onInput={(e) => {
               const target = e.target as HTMLTextAreaElement

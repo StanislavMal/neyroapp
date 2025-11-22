@@ -1,5 +1,3 @@
-// 📄 src/lib/ai/providers/deepseek-openai.ts
-
 import type { AIModel } from '../types';
 import { BaseOpenAIProvider } from './base-openai-provider';
 
@@ -11,6 +9,9 @@ export class DeepSeekOpenAIProvider extends BaseOpenAIProvider {
     super('DEEPSEEK_API_KEY_', 'DeepSeek');
   }
 
+  // Для DeepSeek не требуется переопределять buildRequestOptions,
+  // так как он использует стандартный набор параметров.
+
   getAvailableModels(): AIModel[] {
     return [
       {
@@ -21,8 +22,7 @@ export class DeepSeekOpenAIProvider extends BaseOpenAIProvider {
         contextWindow: 128000,
         maxOutputTokens: 8192,
         supportsFunctions: true,
-        // ✅ Явно указываем, что Vision не поддерживается
-        supportsVision: false, 
+        supportsVision: false,
         supportsAudio: false,
         reasoning: {
           supported: false,
