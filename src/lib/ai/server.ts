@@ -2,11 +2,11 @@
 
 import { createServerFn } from '@tanstack/react-start';
 import { AIProviderFactory } from './provider-factory';
-// ✅ ИЗМЕНЕНИЕ: Убран неиспользуемый импорт 'Message'
-import type { AIProviderConfig, StreamChunk, MessageContent } from './types';
+import type { AIProviderConfig, StreamChunk, MessageContent, ImageAttachmentPayload } from './types';
 
 export interface ChatRequest {
-  messages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[];
+  messages: { role: 'user' | 'assistant' | 'system', content: string }[]; // Текстовая часть истории
+  attachments?: ImageAttachmentPayload[]; // Вложения (с base64) для последнего сообщения
   provider: string;
   model: string;
   systemInstruction?: string;
@@ -18,7 +18,7 @@ export interface ChatRequest {
 
 type StreamPayload = StreamChunk | { type: 'heartbeat' };
 
-const AI_STREAM_INACTIVITY_TIMEOUT = 120000; // 120 секунд
+const AI_STREAM_INACTIVITY_TIMEOUT = 120000;
 
 export const streamChat = createServerFn({
   method: 'POST',
@@ -33,8 +33,6 @@ export const streamChat = createServerFn({
       const selectedModel = availableModels.find(m => m.id === data.model);
       const maxOutputTokens = selectedModel?.maxOutputTokens || data.maxTokens || 8192;
       
-      console.log(`[streamChat] Using model '${data.model}' with max_tokens: ${maxOutputTokens}`);
-      
       const fullSystemInstruction = [
         data.systemInstruction,
         data.activePromptContent
@@ -47,7 +45,26 @@ export const streamChat = createServerFn({
           content: fullSystemInstruction,
         });
       }
-      finalMessages.push(...data.messages.filter(m => m.role !== 'system'));
+      
+      const history = data.messages.filter(m => m.role !== 'system');
+      
+      history.forEach((msg, index) => {
+        // Если это последнее сообщение и есть вложения, формируем сложный контент
+        if (index === history.length - 1 && data.attachments && data.attachments.length > 0) {
+          const contentParts: any[] = [{ type: 'text', text: msg.content }];
+          data.attachments.forEach(att => {
+            if (att.type === 'image') {
+              // Формируем data URI прямо здесь на сервере
+              const imageUrl = `data:${att.mimeType};base64,${att.data}`;
+              contentParts.push({ type: 'image_url', image_url: { url: imageUrl } });
+            }
+          });
+          finalMessages.push({ role: msg.role, content: contentParts });
+        } else {
+          // Для всех остальных (предыдущих) сообщений просто добавляем текст
+          finalMessages.push({ role: msg.role, content: msg.content });
+        }
+      });
 
       const config: Partial<AIProviderConfig> = {
         model: data.model,
@@ -71,9 +88,7 @@ export const streamChat = createServerFn({
       let inactivityTimeout: NodeJS.Timeout | null = null;
 
       const resetInactivityTimeout = () => {
-        if (inactivityTimeout) {
-          clearTimeout(inactivityTimeout);
-        }
+        if (inactivityTimeout) clearTimeout(inactivityTimeout);
         inactivityTimeout = setTimeout(() => {
           console.error('AI stream timed out due to inactivity.');
           sendPayload({ error: 'AI response timed out. Please try again.' });
@@ -84,19 +99,12 @@ export const streamChat = createServerFn({
       (async () => {
         try {
           resetInactivityTimeout();
-
           const aiStream = await provider.streamChat(finalMessages, config);
           const reader = aiStream.getReader();
-
           while (true) {
             const { done, value } = await reader.read();
-            
             resetInactivityTimeout();
-
-            if (done) {
-              break;
-            }
-            
+            if (done) break;
             writer.write(value);
           }
         } catch (error) {
@@ -105,9 +113,7 @@ export const streamChat = createServerFn({
           sendPayload({ error: errorMessage });
         } finally {
           clearInterval(heartbeatInterval);
-          if (inactivityTimeout) {
-            clearTimeout(inactivityTimeout);
-          }
+          if (inactivityTimeout) clearTimeout(inactivityTimeout);
           writer.close();
         }
       })();
@@ -125,10 +131,7 @@ export const streamChat = createServerFn({
       const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
       return new Response(
         JSON.stringify({ error: `Failed to stream chat: ${errorMessage}` }), 
-        { 
-          status: 500,
-          headers: { 'Content-Type': 'application/json' },
-        }
+        { status: 500, headers: { 'Content-Type': 'application/json' } }
       );
     }
   });

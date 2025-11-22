@@ -1,21 +1,29 @@
 // 📄 src/lib/ai/types.ts
 
-// Определяем тип для вложений, который будет храниться в нашей БД
+// Тип для данных изображения, отправляемых с клиента на сервер
+export interface ImageAttachmentPayload {
+  type: 'image';
+  mimeType: string; // e.g., 'image/jpeg'
+  data: string;     // base64 encoded string
+}
+
+// Тип для вложений, который будет храниться в нашей БД и использоваться в UI
 export interface Attachment {
-  type: 'image'; // В будущем можно добавить 'video', 'audio' и т.д.
-  url: string;   // URL для отображения в UI (будет подписанным URL)
+  type: 'image';
+  url: string;   // URL для отображения в UI (подписанный URL)
   path: string;  // Путь к файлу в Supabase Storage
 }
 
-// Определяем тип для сложного контента, который отправляется в AI
+// Тип для сложного контента, который отправляется в AI
 export type MessageContent = string | Array<{
   type: 'text' | 'image_url';
   text?: string;
   image_url?: {
-    url: string; // URL, доступный для AI (должен быть публичным или pre-signed)
+    url: string; // URL, доступный для AI (будет data URI)
   };
 }>;
 
+// Наша внутренняя модель сообщения для UI и БД
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';

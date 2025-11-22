@@ -2,11 +2,24 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
-import type { Message, Attachment, MessageContent } from '../lib/ai/types';
+import type { Message, Attachment, ImageAttachmentPayload } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
 import { selectors, store } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
+
+// Утилита для конвертации файла в Base64 строку
+const fileToBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Возвращаем только саму base64 строку, без префикса 'data:mime/type;base64,'
+      resolve(result.split(',')[1]);
+    };
+    reader.onerror = (error) => reject(error);
+  });
 
 interface UseChatOptions {
   onResponseStart?: () => void;
@@ -44,35 +57,25 @@ export function useChat(options: UseChatOptions = {}) {
 
   const startTypingAnimation = useCallback(() => {
     if (intervalIdRef.current) clearInterval(intervalIdRef.current);
-
     const streamSpeed = settings?.streamSpeed || 30;
     const updateIntervalMs = 33;
     const charsPerTick = Math.max(1, Math.round((streamSpeed * updateIntervalMs) / 1000));
-
     intervalIdRef.current = setInterval(() => {
       if (textQueueRef.current.length > 0) {
         const charsToAdd = textQueueRef.current.substring(0, charsPerTick);
         textQueueRef.current = textQueueRef.current.substring(charsPerTick);
         displayedTextRef.current += charsToAdd;
-        
-        setPendingMessage(prev => 
-          prev ? { ...prev, content: displayedTextRef.current } : prev
-        );
-
+        setPendingMessage(prev => prev ? { ...prev, content: displayedTextRef.current } : prev);
       } else if (!isStreamActiveRef.current) {
-        if (intervalIdRef.current) {
-          clearInterval(intervalIdRef.current);
-          intervalIdRef.current = null;
-        }
+        if (intervalIdRef.current) clearInterval(intervalIdRef.current);
+        intervalIdRef.current = null;
       }
     }, updateIntervalMs);
   }, [settings?.streamSpeed]);
 
   const stopTypingAnimation = useCallback(() => {
-    if (intervalIdRef.current) {
-      clearInterval(intervalIdRef.current);
-      intervalIdRef.current = null;
-    }
+    if (intervalIdRef.current) clearInterval(intervalIdRef.current);
+    intervalIdRef.current = null;
     isStreamActiveRef.current = false;
   }, []);
 
@@ -80,7 +83,6 @@ export function useChat(options: UseChatOptions = {}) {
     bufferRef.current += data;
     const lines = bufferRef.current.split('\n');
     bufferRef.current = lines.pop() || '';
-    
     const chunks = [];
     for (const line of lines) {
       if (!line.trim()) continue;
@@ -94,7 +96,7 @@ export function useChat(options: UseChatOptions = {}) {
   }, []);
 
   const processAIResponse = useCallback(
-    async (messageHistoryForAI: { role: 'user' | 'assistant' | 'system', content: MessageContent }[]) => {
+    async (textMessageHistory: { role: 'user' | 'assistant' | 'system', content: string }[], attachmentsPayload?: ImageAttachmentPayload[]) => {
       if (!settings) {
         const errorMsg = "User settings not loaded.";
         setError(errorMsg);
@@ -104,7 +106,6 @@ export function useChat(options: UseChatOptions = {}) {
 
       const requestId = crypto.randomUUID();
       activeRequestIdRef.current = requestId;
-
       bufferRef.current = '';
       textQueueRef.current = '';
       displayedTextRef.current = '';
@@ -112,16 +113,11 @@ export function useChat(options: UseChatOptions = {}) {
       stopTypingAnimation();
       
       try {
-        // 🪵 LOG: Логируем данные, отправляемые на сервер
-        console.log('🪵 LOG: [useChat/processAIResponse] Отправка на сервер:', {
-          model: settings.model,
-          messagesCount: messageHistoryForAI.length,
-          lastMessageContent: messageHistoryForAI[messageHistoryForAI.length - 1]?.content,
-        });
         const provider = settings.model.startsWith('deepseek') ? 'deepseek' : 'gemini';
         const response = await streamChat({
           data: {
-            messages: messageHistoryForAI,
+            messages: textMessageHistory,
+            attachments: attachmentsPayload,
             provider,
             model: settings.model,
             systemInstruction: settings.system_instruction,
@@ -136,35 +132,24 @@ export function useChat(options: UseChatOptions = {}) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let animationStarted = false;
-
         while (true) {
           if (activeRequestIdRef.current !== requestId) {
             reader.cancel();
             return null;
           }
-
           const { value, done } = await reader.read();
           if (done) {
             isStreamActiveRef.current = false;
             break;
           }
-
           const rawText = decoder.decode(value, { stream: true });
           const chunks = parseNDJSON(rawText);
-          
           for (const chunk of chunks) {
-            if (chunk.type === 'heartbeat') {
-              continue;
-            }
-            
+            if (chunk.type === 'heartbeat') continue;
             if (chunk.error) throw new Error(chunk.error);
             if (chunk.text) {
               if (!animationStarted) {
-                setPendingMessage({ 
-                  id: 'pending-assistant-message', 
-                  role: 'assistant', 
-                  content: '' 
-                });
+                setPendingMessage({ id: 'pending-assistant-message', role: 'assistant', content: '' });
                 isStreamActiveRef.current = true;
                 startTypingAnimation();
                 setIsLoading(false);
@@ -175,24 +160,14 @@ export function useChat(options: UseChatOptions = {}) {
             }
           }
         }
-        
         await new Promise<void>((resolve) => {
           const checkCompletion = () => {
-            if (textQueueRef.current.length === 0 && !intervalIdRef.current) {
-              resolve();
-            } else {
-              setTimeout(checkCompletion, 50);
-            }
+            if (textQueueRef.current.length === 0 && !intervalIdRef.current) resolve();
+            else setTimeout(checkCompletion, 50);
           };
           checkCompletion();
         });
-        
-        return { 
-          id: crypto.randomUUID(), 
-          role: 'assistant' as const, 
-          content: displayedTextRef.current 
-        };
-
+        return { id: crypto.randomUUID(), role: 'assistant' as const, content: displayedTextRef.current };
       } catch (error) {
         if (activeRequestIdRef.current !== requestId) return null;
         const errorMsg = error instanceof Error ? error.message : 'An error occurred';
@@ -208,33 +183,34 @@ export function useChat(options: UseChatOptions = {}) {
   
   const sendMessage = useCallback(
     async (content: string, attachmentFile?: File | null, conversationTitle?: string) => {
-      // 🪵 LOG: Начало процесса отправки
-      console.log('🪵 LOG: [useChat/sendMessage] Начинаем отправку сообщения. Вложение:', attachmentFile);
       if ((!content.trim() && !attachmentFile) || isLoading || !user) return;
 
       setIsLoading(true);
       setError(null);
       setPendingMessage(null);
       
-      let attachments: Attachment[] = [];
+      let attachmentsForUI: Attachment[] = [];
+      let attachmentsForAI: ImageAttachmentPayload[] = [];
       
       try {
         if (attachmentFile) {
-          // 🪵 LOG: Шаг 1: Загрузка вложения
-          console.log('🪵 LOG: [useChat/sendMessage] Шаг 1: Попытка загрузить файл в Storage...');
-          const filePath = await api.uploadAttachment(user.id, attachmentFile);
-          console.log('🪵 LOG: [useChat/sendMessage] Файл успешно загружен, путь:', filePath);
+          const [filePath, base64Data] = await Promise.all([
+            api.uploadAttachment(user.id, attachmentFile),
+            fileToBase64(attachmentFile),
+          ]);
 
-          // 🪵 LOG: Шаг 2: Создание подписанного URL
-          console.log('🪵 LOG: [useChat/sendMessage] Шаг 2: Получение подписанного URL...');
           const signedUrls = await api.createSignedUrls([filePath]);
           if (signedUrls.length > 0) {
-            attachments.push({
+            attachmentsForUI.push({
               type: 'image',
               path: filePath,
               url: signedUrls[0].signedUrl,
             });
-            console.log('🪵 LOG: [useChat/sendMessage] Подписанный URL получен:', signedUrls[0].signedUrl);
+            attachmentsForAI.push({
+              type: 'image',
+              mimeType: attachmentFile.type,
+              data: base64Data,
+            });
           } else {
             throw new Error("Не удалось получить URL для загруженного файла.");
           }
@@ -244,45 +220,27 @@ export function useChat(options: UseChatOptions = {}) {
           id: crypto.randomUUID(), 
           role: 'user', 
           content: content.trim(),
-          attachments: attachments,
+          attachments: attachmentsForUI,
         };
-        // 🪵 LOG: Шаг 3: Формирование объекта сообщения для UI
-        console.log('🪵 LOG: [useChat/sendMessage] Шаг 3: Сформировано сообщение для UI:', userMessage);
 
         let convId = currentConversationId;
         if (!convId) {
           const title = conversationTitle || content.slice(0, 30) || "Image Message";
-          // 🪵 LOG: Шаг 4a: Создание новой беседы
-          console.log('🪵 LOG: [useChat/sendMessage] Шаг 4a: Создание новой беседы с заголовком:', title);
           convId = await createNewConversation(title);
           if (!convId) throw new Error('Failed to create conversation');
-          console.log('🪵 LOG: [useChat/sendMessage] Новая беседа создана, ID:', convId);
         }
         
-        // 🪵 LOG: Шаг 4b: Добавление сообщения в UI и БД
-        console.log('🪵 LOG: [useChat/sendMessage] Шаг 4b: Добавление сообщения в кэш и БД...');
         await addMessage(convId, userMessage);
         await new Promise(resolve => setTimeout(resolve, 10));
         
         const currentMessages = selectors.getCurrentMessages(store.state);
         
-        const messageHistoryForAI = currentMessages.map(msg => {
-          let aiContent: MessageContent = msg.content;
-          if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
-            const contentParts: { type: 'text', text: string }[] = [{ type: 'text', text: msg.content }];
-            msg.attachments.forEach(att => {
-              if (att.type === 'image') {
-                contentParts.push({ type: 'image_url', image_url: { url: att.url } } as any);
-              }
-            });
-            aiContent = contentParts;
-          }
-          return { role: msg.role, content: aiContent };
-        });
-        // 🪵 LOG: Шаг 5: Формирование истории для AI
-        console.log('🪵 LOG: [useChat/sendMessage] Шаг 5: Сформирована история для AI.', messageHistoryForAI);
+        const textMessageHistory = currentMessages.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+        }));
 
-        const aiResponse = await processAIResponse(messageHistoryForAI);
+        const aiResponse = await processAIResponse(textMessageHistory, attachmentsForAI);
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
@@ -291,15 +249,11 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
       } catch (error) {
-        // 🪵 LOG: ОБРАБОТКА ОШИБКИ
-        console.error('🪵 LOG: [useChat/sendMessage] КРИТИЧЕСКАЯ ОШИБКА в процессе отправки:', error);
         const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
         setError(errorMsg);
         options.onError?.(errorMsg);
         setPendingMessage(null);
       } finally {
-        // 🪵 LOG: Завершение процесса
-        console.log('🪵 LOG: [useChat/sendMessage] Процесс отправки завершен.');
         setIsLoading(false);
       }
     },
@@ -309,23 +263,22 @@ export function useChat(options: UseChatOptions = {}) {
   const editAndRegenerate = useCallback(
     async (messageId: string, newContent: string) => {
       if (!currentConversationId || isLoading) return;
-
       setIsLoading(true);
       setError(null);
       setPendingMessage(null);
-
       try {
         const updatedHistory = await editMessageAndUpdate(messageId, newContent);
         if (!updatedHistory) throw new Error("Failed to update message");
-
-        const aiResponse = await processAIResponse(updatedHistory);
-        
+        const messageHistoryForAI = updatedHistory.map(msg => ({
+          role: msg.role,
+          content: msg.content,
+        }));
+        const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
           await addMessage(currentConversationId, aiResponse);
           options.onResponseComplete?.(aiResponse);
         }
-
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'An error occurred during edit';
         setError(errorMsg);
