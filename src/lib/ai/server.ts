@@ -2,11 +2,11 @@
 
 import { createServerFn } from '@tanstack/react-start';
 import { AIProviderFactory } from './provider-factory';
-import type { AIProviderConfig, StreamChunk, MessageContent, ImageAttachmentPayload } from './types';
+import type { AIProviderConfig, StreamChunk, MessageContent } from './types';
 
 export interface ChatRequest {
-  messages: { role: 'user' | 'assistant' | 'system', content: string }[]; // Текстовая часть истории
-  attachments?: ImageAttachmentPayload[]; // Вложения (с base64) для последнего сообщения
+  // ✅ ИЗМЕНЕНИЕ: Теперь `messages` сразу содержит мультимодальный контент
+  messages: { role: 'user' | 'assistant' | 'system', content: MessageContent }[];
   provider: string;
   model: string;
   systemInstruction?: string;
@@ -46,25 +46,8 @@ export const streamChat = createServerFn({
         });
       }
       
-      const history = data.messages.filter(m => m.role !== 'system');
-      
-      history.forEach((msg, index) => {
-        // Если это последнее сообщение и есть вложения, формируем сложный контент
-        if (index === history.length - 1 && data.attachments && data.attachments.length > 0) {
-          const contentParts: any[] = [{ type: 'text', text: msg.content }];
-          data.attachments.forEach(att => {
-            if (att.type === 'image') {
-              // Формируем data URI прямо здесь на сервере
-              const imageUrl = `data:${att.mimeType};base64,${att.data}`;
-              contentParts.push({ type: 'image_url', image_url: { url: imageUrl } });
-            }
-          });
-          finalMessages.push({ role: msg.role, content: contentParts });
-        } else {
-          // Для всех остальных (предыдущих) сообщений просто добавляем текст
-          finalMessages.push({ role: msg.role, content: msg.content });
-        }
-      });
+      // ✅ ИЗМЕНЕНИЕ: Просто добавляем уже готовую историю от клиента
+      finalMessages.push(...data.messages.filter(m => m.role !== 'system'));
 
       const config: Partial<AIProviderConfig> = {
         model: data.model,

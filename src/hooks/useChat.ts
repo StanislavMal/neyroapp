@@ -2,24 +2,33 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
-import type { Message, Attachment, ImageAttachmentPayload } from '../lib/ai/types';
+// ✅ ИСПРАВЛЕНИЕ: Убран неиспользуемый импорт ImageAttachmentPayload
+import type { Message, Attachment, MessageContent } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
 import { selectors, store } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 
-// Утилита для конвертации файла в Base64 строку
-const fileToBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
+// ✅ НОВАЯ УТИЛИТА: Конвертация URL в Base64 строку
+const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image from URL: ${url}`);
+  }
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(blob);
     reader.onload = () => {
       const result = reader.result as string;
-      // Возвращаем только саму base64 строку, без префикса 'data:mime/type;base64,'
-      resolve(result.split(',')[1]);
+      const [header, data] = result.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] || blob.type;
+      resolve({ mimeType, data });
     };
     reader.onerror = (error) => reject(error);
   });
+};
+
 
 interface UseChatOptions {
   onResponseStart?: () => void;
@@ -96,7 +105,7 @@ export function useChat(options: UseChatOptions = {}) {
   }, []);
 
   const processAIResponse = useCallback(
-    async (textMessageHistory: { role: 'user' | 'assistant' | 'system', content: string }[], attachmentsPayload?: ImageAttachmentPayload[]) => {
+    async (messageHistoryForAI: { role: 'user' | 'assistant' | 'system', content: MessageContent }[]) => {
       if (!settings) {
         const errorMsg = "User settings not loaded.";
         setError(errorMsg);
@@ -116,8 +125,7 @@ export function useChat(options: UseChatOptions = {}) {
         const provider = settings.model.startsWith('deepseek') ? 'deepseek' : 'gemini';
         const response = await streamChat({
           data: {
-            messages: textMessageHistory,
-            attachments: attachmentsPayload,
+            messages: messageHistoryForAI,
             provider,
             model: settings.model,
             systemInstruction: settings.system_instruction,
@@ -180,6 +188,40 @@ export function useChat(options: UseChatOptions = {}) {
     },
     [settings, activePrompt, startTypingAnimation, stopTypingAnimation, options, parseNDJSON]
   );
+
+  const prepareHistoryForAI = async (messages: Message[]): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+    const historyForAI: { role: 'user' | 'assistant', content: MessageContent }[] = [];
+
+    for (const msg of messages) {
+      if (msg.role === 'system') continue;
+
+      if (msg.attachments && msg.attachments.length > 0) {
+        const contentParts: ({ type: 'text', text: string } | { type: 'image_url', image_url: { url: string } })[] = [];
+        
+        if (msg.content) {
+          contentParts.push({ type: 'text', text: msg.content });
+        }
+
+        for (const attachment of msg.attachments) {
+          if (attachment.type === 'image' && attachment.url) {
+            try {
+              const { mimeType, data } = await urlToBase64(attachment.url);
+              contentParts.push({
+                type: 'image_url',
+                image_url: { url: `data:${mimeType};base64,${data}` },
+              });
+            } catch (e) {
+              console.error(`Failed to convert attachment URL to base64 for message ${msg.id}`, e);
+            }
+          }
+        }
+        historyForAI.push({ role: msg.role, content: contentParts });
+      } else {
+        historyForAI.push({ role: msg.role, content: msg.content });
+      }
+    }
+    return historyForAI;
+  };
   
   const sendMessage = useCallback(
     async (content: string, attachmentFile?: File | null, conversationTitle?: string) => {
@@ -190,26 +232,17 @@ export function useChat(options: UseChatOptions = {}) {
       setPendingMessage(null);
       
       let attachmentsForUI: Attachment[] = [];
-      let attachmentsForAI: ImageAttachmentPayload[] = [];
       
       try {
         if (attachmentFile) {
-          const [filePath, base64Data] = await Promise.all([
-            api.uploadAttachment(user.id, attachmentFile),
-            fileToBase64(attachmentFile),
-          ]);
-
+          const filePath = await api.uploadAttachment(user.id, attachmentFile);
           const signedUrls = await api.createSignedUrls([filePath]);
+
           if (signedUrls.length > 0) {
             attachmentsForUI.push({
               type: 'image',
               path: filePath,
               url: signedUrls[0].signedUrl,
-            });
-            attachmentsForAI.push({
-              type: 'image',
-              mimeType: attachmentFile.type,
-              data: base64Data,
             });
           } else {
             throw new Error("Не удалось получить URL для загруженного файла.");
@@ -235,12 +268,9 @@ export function useChat(options: UseChatOptions = {}) {
         
         const currentMessages = selectors.getCurrentMessages(store.state);
         
-        const textMessageHistory = currentMessages.map(msg => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+        const messageHistoryForAI = await prepareHistoryForAI(currentMessages);
 
-        const aiResponse = await processAIResponse(textMessageHistory, attachmentsForAI);
+        const aiResponse = await processAIResponse(messageHistoryForAI);
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
@@ -269,10 +299,9 @@ export function useChat(options: UseChatOptions = {}) {
       try {
         const updatedHistory = await editMessageAndUpdate(messageId, newContent);
         if (!updatedHistory) throw new Error("Failed to update message");
-        const messageHistoryForAI = updatedHistory.map(msg => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+        
+        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory);
+
         const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
