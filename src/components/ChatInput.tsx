@@ -108,7 +108,7 @@ export const ChatInput = forwardRef((
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none"
+            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none z-10"
             aria-label="Attach file"
           >
             <Paperclip className="w-4 h-4" />
