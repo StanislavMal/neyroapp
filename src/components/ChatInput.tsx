@@ -8,7 +8,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 interface ChatInputProps {
   input: string;
   setInput: (value: string) => void;
-  handleSubmit: (e: React.FormEvent, attachment?: File | null) => Promise<void>;
+  handleSubmit: (e: React.FormEvent, attachment?: File | null, blobUrl?: string) => Promise<void>;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -24,41 +24,61 @@ export const ChatInput = forwardRef((
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentBlobUrl = useRef<string | null>(null);
 
+  // Очистка URL при размонтировании компонента
   useEffect(() => {
-    if (!attachment) {
-      setPreviewUrl(null);
-      return;
-    }
-    const objectUrl = URL.createObjectURL(attachment);
-    setPreviewUrl(objectUrl);
-
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [attachment]);
+    const blobUrl = currentBlobUrl.current;
+    return () => {
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
+      }
+    };
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Аннулируем предыдущий URL, если он был
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+    }
+
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      // 🪵 LOG: Проверяем, что файл был выбран и установлен в состояние
-      console.log('🪵 LOG: [ChatInput] Файл выбран:', file);
+      const newBlobUrl = URL.createObjectURL(file);
       setAttachment(file);
+      setPreviewUrl(newBlobUrl);
+      currentBlobUrl.current = newBlobUrl;
+    } else {
+      setAttachment(null);
+      setPreviewUrl(null);
+      currentBlobUrl.current = null;
     }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
   const removeAttachment = () => {
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+    }
     setAttachment(null);
+    setPreviewUrl(null);
+    currentBlobUrl.current = null;
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachment) return;
-    // 🪵 LOG: Проверяем, что файл передается в handleSubmit
-    console.log('🪵 LOG: [ChatInput] Отправка формы с вложением:', attachment);
-    handleSubmit(e, attachment);
+    
+    // Передаем URL, но не аннулируем его здесь
+    handleSubmit(e, attachment, previewUrl || undefined);
+    
+    // Сбрасываем состояние, но не трогаем currentBlobUrl.current
     setAttachment(null);
+    setPreviewUrl(null); 
+    // `currentBlobUrl.current` будет очищен в `useChat`
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -88,7 +108,7 @@ export const ChatInput = forwardRef((
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
-            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none"
+            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none z-10"
             aria-label="Attach file"
           >
             <Paperclip className="w-4 h-4" />

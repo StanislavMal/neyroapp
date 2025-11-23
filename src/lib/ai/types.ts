@@ -12,6 +12,7 @@ export interface Attachment {
   type: 'image';
   url: string;   // URL для отображения в UI (подписанный URL)
   path: string;  // Путь к файлу в Supabase Storage
+  isLoading?: boolean; // для ндикатора загрузки
 }
 
 // Тип для сложного контента, который отправляется в AI
