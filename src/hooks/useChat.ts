@@ -274,7 +274,8 @@ export function useChat(options: UseChatOptions = {}) {
           type: 'image',
           url: blobUrl,
           path: '',
-          isLoading: true,
+          // ✅ ИЗМЕНЕНИЕ: Убираем индикатор загрузки с самого изображения
+          isLoading: false, 
         });
       }
 
@@ -301,7 +302,9 @@ export function useChat(options: UseChatOptions = {}) {
                 url: signedUrls[0].signedUrl,
                 isLoading: false,
               });
+              
               if (blobUrl) URL.revokeObjectURL(blobUrl);
+              
               await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
             } else {
               throw new Error("Не удалось получить URL для загруженного файла.");

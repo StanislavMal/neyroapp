@@ -24,45 +24,61 @@ export const ChatInput = forwardRef((
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const currentBlobUrl = useRef<string | null>(null);
 
+  // Очистка URL при размонтировании компонента
   useEffect(() => {
-    let objectUrl: string | null = null;
-    
-    if (attachment) {
-      objectUrl = URL.createObjectURL(attachment);
-      setPreviewUrl(objectUrl);
-    } else {
-      setPreviewUrl(null);
-    }
-
-    // Эта функция очистки сработает, только если компонент будет размонтирован
-    // или если будет выбран НОВЫЙ файл, что отзовет СТАРЫЙ URL.
+    const blobUrl = currentBlobUrl.current;
     return () => {
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      if (blobUrl) {
+        URL.revokeObjectURL(blobUrl);
       }
     };
-  }, [attachment]);
+  }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Аннулируем предыдущий URL, если он был
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+    }
+
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
+      const newBlobUrl = URL.createObjectURL(file);
       setAttachment(file);
+      setPreviewUrl(newBlobUrl);
+      currentBlobUrl.current = newBlobUrl;
+    } else {
+      setAttachment(null);
+      setPreviewUrl(null);
+      currentBlobUrl.current = null;
     }
+
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
   const removeAttachment = () => {
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+    }
     setAttachment(null);
+    setPreviewUrl(null);
+    currentBlobUrl.current = null;
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachment) return;
+    
+    // Передаем URL, но не аннулируем его здесь
     handleSubmit(e, attachment, previewUrl || undefined);
+    
+    // Сбрасываем состояние, но не трогаем currentBlobUrl.current
     setAttachment(null);
+    setPreviewUrl(null); 
+    // `currentBlobUrl.current` будет очищен в `useChat`
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
