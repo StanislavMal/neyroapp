@@ -29,7 +29,6 @@ function Home() {
   const navigate = useNavigate();
   const { user, isInitialized } = useAuth();
 
-  // --- Управление состоянием ---
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [isInputFocused, setIsInputFocused] = useState(false);
@@ -37,11 +36,9 @@ function Home() {
   const [appState, setAppState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  // --- Рефы и медиа-запросы ---
   const footerRef = useRef<FooterRef>(null);
   const isDesktop = useMediaQuery('(min-width: 768px)');
   
-  // --- Кастомные хуки ---
   const { messages, currentConversationId, loadConversations } = useConversations();
   const { loadSettings } = useSettings();
   const { loadPrompts } = usePrompts();
@@ -60,7 +57,6 @@ function Home() {
 
   const sidebar = useSidebar();
 
-  // --- Загрузка данных и подписки ---
   useEffect(() => {
     if (!isInitialized) return;
     if (!user) {
@@ -86,36 +82,20 @@ function Home() {
 
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
 
-  // --- Обработчики событий ---
   const handleSend = useCallback(
-    async (message: string, attachment?: File | null) => {
-      // 🪵 LOG: Проверяем, что пришло в главный обработчик
-      console.log('🪵 LOG: [Home/handleSend] Получено сообщение:', message, 'и вложение:', attachment);
-
+    // ✅ ИСПРАВЛЕНИЕ: Убран параметр title
+    async (message: string, attachment?: File | null, blobUrl?: string) => {
       const textMessage = message || '';
       
       if (!textMessage.trim() && !attachment || isLoading) {
-        // 🪵 LOG: Сообщение пустое и нет вложения, отправка отменена
-        console.log('🪵 LOG: [Home/handleSend] Отправка отменена (пустое сообщение).');
         return;
       }
       
       lockToBottom();      
       footerRef.current?.resetInput();
       
-      let title: string;
-      const trimmedMessage = textMessage.trim();
-      
-      if (trimmedMessage) {
-        const words = trimmedMessage.split(/\s+/);
-        title = words.slice(0, 3).join(' ') + (words.length > 3 ? '...' : '');
-      } else {
-        title = "Новое изображение";
-      }
-      
-      // 🪵 LOG: Передаем данные в хук useChat
-      console.log('🪵 LOG: [Home/handleSend] Вызов sendMessage с заголовком:', title);
-      await sendMessage(textMessage, attachment, title);
+      // ✅ ИСПРАВЛЕНИЕ: Вызов sendMessage без title
+      await sendMessage(textMessage, attachment, blobUrl);
     },
     [isLoading, sendMessage, lockToBottom]
   );
@@ -136,7 +116,6 @@ function Home() {
     [editAndRegenerate]
   );
   
-  // --- Агрегация пропсов для лэйаутов ---
   const sidebarProps = {
     ...sidebar,
     setCurrentConversationId: sidebar.handleSelectChat,
@@ -179,7 +158,6 @@ function Home() {
     scrollToBottom,
   };
 
-  // --- Логика рендеринга ---
   if (appState === 'loading') {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-900">

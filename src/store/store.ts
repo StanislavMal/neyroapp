@@ -49,6 +49,7 @@ const initialState: State = {
 export const store = new Store<State>(initialState)
 
 export const actions = {
+  // ... (другие actions без изменений) ...
   resetStore: () => {
     store.setState(() => initialState);
   },
@@ -71,6 +72,26 @@ export const actions = {
         messageCache: {
           ...state.messageCache,
           [conversationId]: [...existingMessages, message],
+        },
+      };
+    });
+  },
+
+  // ✅ НОВЫЙ ACTION: Для обновления временного сообщения
+  updateMessageInCache: (conversationId: string, messageId: string, updatedMessage: Partial<Message>) => {
+    store.setState(state => {
+      const messages = state.messageCache[conversationId] || [];
+      const msgIndex = messages.findIndex(m => m.id === messageId);
+      if (msgIndex === -1) return state;
+
+      const newMessages = [...messages];
+      newMessages[msgIndex] = { ...newMessages[msgIndex], ...updatedMessage };
+
+      return {
+        ...state,
+        messageCache: {
+          ...state.messageCache,
+          [conversationId]: newMessages,
         },
       };
     });

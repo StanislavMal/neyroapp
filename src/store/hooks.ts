@@ -7,9 +7,6 @@ import type { Message, Attachment } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 
-/**
- * Загружает сообщения и получает подписанные URL для вложений.
- */
 const loadMessagesForConversation = async (conversationId: string) => {
   if (store.state.messageCache[conversationId]) {
     console.log(`[loadMessages] Сообщения для ${conversationId} найдены в кэше. Пропускаю загрузку.`);
@@ -59,7 +56,7 @@ const loadMessagesForConversation = async (conversationId: string) => {
   }
 };
 
-// --- Хуки для работы со стором ---
+// ... (хуки useSettings, usePrompts, useAppState без изменений) ...
 
 export function useSettings() {
     const { user } = useAuth();
@@ -264,9 +261,7 @@ export function useConversations() {
       }
   }, []);
 
-  // ✅ ИЗМЕНЕНИЕ: Логика удаления беседы
   const deleteConversation = useCallback(async (id: string) => {
-      // Сначала получаем сообщения, чтобы найти вложения
       const messagesInConv = store.state.messageCache[id] || (await api.fetchMessages(id)).data || [];
       
       const attachmentPaths = messagesInConv
@@ -274,12 +269,10 @@ export function useConversations() {
         .map((att: Attachment) => att.path)
         .filter(Boolean);
 
-      // Если есть вложения, удаляем их из Storage
       if (attachmentPaths.length > 0) {
         await api.deleteAttachments(attachmentPaths);
       }
 
-      // Затем удаляем беседу и сообщения из состояния и БД
       actions.deleteConversation(id);
       try {
         const { error } = await api.deleteConversation(id);
@@ -302,7 +295,11 @@ export function useConversations() {
     }
   }, [user]);
 
-  // ✅ ИЗМЕНЕНИЕ: Логика редактирования и регенерации
+  // ✅ НОВЫЙ ACTION: Для обновления временного сообщения
+  const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedMessage: Partial<Message>) => {
+    actions.updateMessageInCache(conversationId, messageId, updatedMessage);
+  }, []);
+
   const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
     const convId = selectors.getCurrentConversationId(store.state);
     if (!convId) return null;
@@ -317,7 +314,6 @@ export function useConversations() {
     const messagesToDelete = originalMessages.slice(originalMessageIndex + 1);
     const idsToDelete = messagesToDelete.map(m => m.id);
 
-    // Собираем пути к файлам для удаляемых сообщений
     const attachmentPathsToDelete = messagesToDelete
       .flatMap(msg => msg.attachments || [])
       .map(att => att.path)
@@ -327,7 +323,6 @@ export function useConversations() {
     
     try {
       const promises = [];
-      // Добавляем удаление файлов в Storage в список параллельных задач
       if (attachmentPathsToDelete.length > 0) {
         promises.push(api.deleteAttachments(attachmentPathsToDelete));
       }
@@ -342,7 +337,7 @@ export function useConversations() {
       }
     } catch (error) {
       console.error('Не удалось обновить сообщения в Supabase после редактирования:', error);
-      actions.setCachedMessages(convId, originalMessages); // Откат
+      actions.setCachedMessages(convId, originalMessages);
       return null;
     }
     
@@ -388,6 +383,7 @@ export function useConversations() {
     updateConversationTitle,
     deleteConversation,
     addMessage,
+    updateMessage, // ✅ Экспортируем новый action
     editMessageAndUpdate,
     duplicateConversation,
   };

@@ -72,7 +72,7 @@ export const ChatMessage = memo(function ChatMessage({
         ta.removeEventListener('input', setHeight);
       };
     }
-  }, [isEditing]);
+  }, [isEditing]);  
 
   useEffect(() => {
     const componentRoot = messageContentRef.current?.parentElement?.parentElement;
@@ -219,25 +219,30 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         ) : (
           <div ref={messageContentRef}>
-            {/* ✅ РЕНДЕРИНГ ВЛОЖЕНИЙ */}
             {message.attachments && message.attachments.length > 0 && (
               <div className="my-2 flex flex-wrap gap-2">
                 {message.attachments.map((att, index) =>
                   att.type === 'image' ? (
-                    <a key={index} href={att.url} target="_blank" rel="noopener noreferrer">
-                      <img
-                        src={att.url}
-                        alt={`Attachment ${index + 1}`}
-                        className="max-w-xs max-h-64 rounded-lg object-cover cursor-pointer transition-opacity hover:opacity-80"
-                        loading="lazy"
-                      />
-                    </a>
+                    <div key={index} className="relative">
+                      <a href={att.url} target="_blank" rel="noopener noreferrer" className="block">
+                        <img
+                          src={att.url}
+                          alt={`Attachment ${index + 1}`}
+                          className="max-w-xs max-h-64 rounded-lg object-cover cursor-pointer transition-opacity hover:opacity-80"
+                          loading="lazy"
+                        />
+                      </a>
+                      {att.isLoading && (
+                        <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+                          <div className="w-8 h-8 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                        </div>
+                      )}
+                    </div>
                   ) : null
                 )}
               </div>
             )}
             
-            {/* ✅ РЕНДЕРИНГ ТЕКСТА */}
             {isStreaming && !message.content ? (
               <TypingDots />
             ) : (
@@ -326,7 +331,6 @@ export const ChatMessage = memo(function ChatMessage({
     prevProps.isLoading === nextProps.isLoading &&
     prevProps.showRegenerateButton === nextProps.showRegenerateButton &&
     prevProps.isStreaming === nextProps.isStreaming &&
-    // Добавляем проверку вложений для корректной мемоизации
     JSON.stringify(prevProps.message.attachments) === JSON.stringify(nextProps.message.attachments)
   );
 });

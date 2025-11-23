@@ -8,7 +8,7 @@ import { useMediaQuery } from '../hooks/useMediaQuery';
 interface ChatInputProps {
   input: string;
   setInput: (value: string) => void;
-  handleSubmit: (e: React.FormEvent, attachment?: File | null) => Promise<void>;
+  handleSubmit: (e: React.FormEvent, attachment?: File | null, blobUrl?: string) => Promise<void>;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -26,21 +26,27 @@ export const ChatInput = forwardRef((
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!attachment) {
+    let objectUrl: string | null = null;
+    
+    if (attachment) {
+      objectUrl = URL.createObjectURL(attachment);
+      setPreviewUrl(objectUrl);
+    } else {
       setPreviewUrl(null);
-      return;
     }
-    const objectUrl = URL.createObjectURL(attachment);
-    setPreviewUrl(objectUrl);
 
-    return () => URL.revokeObjectURL(objectUrl);
+    // Эта функция очистки сработает, только если компонент будет размонтирован
+    // или если будет выбран НОВЫЙ файл, что отзовет СТАРЫЙ URL.
+    return () => {
+      if (objectUrl) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
   }, [attachment]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
-      // 🪵 LOG: Проверяем, что файл был выбран и установлен в состояние
-      console.log('🪵 LOG: [ChatInput] Файл выбран:', file);
       setAttachment(file);
     }
     if (fileInputRef.current) {
@@ -55,9 +61,7 @@ export const ChatInput = forwardRef((
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachment) return;
-    // 🪵 LOG: Проверяем, что файл передается в handleSubmit
-    console.log('🪵 LOG: [ChatInput] Отправка формы с вложением:', attachment);
-    handleSubmit(e, attachment);
+    handleSubmit(e, attachment, previewUrl || undefined);
     setAttachment(null);
   };
 
