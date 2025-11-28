@@ -10,6 +10,7 @@ import { AuthProvider } from '../providers/AuthProvider'
 import { useTranslation } from 'react-i18next'
 
 import appCss from '../styles.css?url'
+import lightboxCss from 'yet-another-react-lightbox/styles.css?url'
 
 export const Route = createRootRoute({
   head: () => ({
@@ -19,7 +20,8 @@ export const Route = createRootRoute({
     ],
     links: [
       { rel: 'stylesheet', href: appCss },
-      { rel: 'stylesheet', href: '/css/katex.min.css' }
+      { rel: 'stylesheet', href: '/css/katex.min.css' },
+      { rel: 'stylesheet', href: lightboxCss },
     ],
   }),
   component: RootComponent,

@@ -1,7 +1,8 @@
 // 📄 src/routes/index.tsx
 
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import Lightbox from 'yet-another-react-lightbox';
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { DesktopLayout, MobileLayout } from '../components';
@@ -35,6 +36,8 @@ function Home() {
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
   const [appState, setAppState] = useState<'loading' | 'error' | 'ready'>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
 
   const footerRef = useRef<FooterRef>(null);
   const isDesktop = useMediaQuery('(min-width: 768px)');
@@ -81,6 +84,29 @@ function Home() {
   }, [user, isInitialized, appState, navigate, loadConversations, loadPrompts, loadSettings]);
 
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
+
+  const allImages = useMemo(() => 
+    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image').map(att => ({ src: att.url })) ?? [])
+  , [messages]);
+
+  const handleImageClick = useCallback((messageId: string, attachmentIndex: number) => {
+    let globalIndex = 0;
+    let found = false;
+    for (const msg of messages) {
+      const imageAttachments = msg.attachments?.filter(att => att.type === 'image') ?? [];
+      if (msg.id === messageId) {
+        globalIndex += attachmentIndex;
+        found = true;
+        break;
+      }
+      globalIndex += imageAttachments.length;
+    }
+
+    if (found) {
+      setLightboxIndex(globalIndex);
+      setLightboxOpen(true);
+    }
+  }, [messages]);
 
   const handleSend = useCallback(
     async (message: string, attachments?: File[] | null, blobUrls?: string[]) => {
@@ -140,6 +166,7 @@ function Home() {
     onCancelEdit: handleCancelEdit,
     onSaveEdit: handleSaveEdit,
     setIsInputFocused,
+    onImageClick: handleImageClick,
   };
 
   const layoutProps = {
@@ -183,7 +210,17 @@ function Home() {
   }
 
   if (appState === 'ready') {
-    return isDesktop ? <DesktopLayout {...layoutProps} /> : <MobileLayout {...layoutProps} />;
+    return (
+      <>
+        {isDesktop ? <DesktopLayout {...layoutProps} /> : <MobileLayout {...layoutProps} />}
+        <Lightbox
+          open={lightboxOpen}
+          close={() => setLightboxOpen(false)}
+          slides={allImages}
+          index={lightboxIndex}
+        />
+      </>
+    );
   }
 
   return null;
