@@ -248,15 +248,18 @@ export function useChat(options: UseChatOptions = {}) {
   };
   
   const sendMessage = useCallback(
-    async (content: string, attachmentFile?: File | null, blobUrl?: string) => {
-      if ((!content.trim() && !attachmentFile) || isLoading || !user) {
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+    async (content: string, attachmentFiles?: File[] | null, blobUrls?: string[]) => {
+      const hasContent = content.trim();
+      const hasAttachments = attachmentFiles && attachmentFiles.length > 0;
+
+      if ((!hasContent && !hasAttachments) || isLoading || !user) {
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         return;
       }
 
-      if (attachmentFile && !supportsVision) {
+      if (hasAttachments && !supportsVision) {
         setError("The selected model does not support image attachments.");
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         return;
       }
 
@@ -271,7 +274,7 @@ export function useChat(options: UseChatOptions = {}) {
         if (!convId) {
           setError('Failed to create conversation');
           setIsLoading(false);
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
+          if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
           return;
         }
       }
@@ -279,13 +282,13 @@ export function useChat(options: UseChatOptions = {}) {
       const tempMessageId = crypto.randomUUID();
       let tempAttachments: Attachment[] = [];
 
-      if (attachmentFile && blobUrl) {
-        tempAttachments.push({
+      if (blobUrls && blobUrls.length > 0) {
+        tempAttachments = blobUrls.map(url => ({
           type: 'image',
-          url: blobUrl,
+          url: url,
           path: '',
-          isLoading: false, 
-        });
+          isLoading: false,
+        }));
       }
 
       const userMessage: Message = { 
@@ -299,28 +302,33 @@ export function useChat(options: UseChatOptions = {}) {
       (async () => {
         try {
           let finalAttachments: Attachment[] = [];
-          if (attachmentFile) {
-            const fileToUpload = await compressImage(attachmentFile);
-            const filePath = await api.uploadAttachment(user.id, fileToUpload);
-            const signedUrls = await api.createSignedUrls([filePath]);
+          if (attachmentFiles && attachmentFiles.length > 0) {
+            const uploadPromises = attachmentFiles.map(async (file) => {
+              const fileToUpload = await compressImage(file);
+              const filePath = await api.uploadAttachment(user.id, fileToUpload);
+              return filePath;
+            });
+
+            const filePaths = await Promise.all(uploadPromises);
+            const signedUrls = await api.createSignedUrls(filePaths);
 
             if (signedUrls.length > 0) {
-              finalAttachments.push({
+              finalAttachments = signedUrls.map(item => ({
                 type: 'image',
-                path: filePath,
-                url: signedUrls[0].signedUrl,
+                path: item.path,
+                url: item.signedUrl,
                 isLoading: false,
-              });
+              }));
+
+              if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
               
-              if (blobUrl) URL.revokeObjectURL(blobUrl);
-              
-              await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+              await updateMessage(convId!, tempMessageId, { attachments: finalAttachments });
             } else {
-              throw new Error("Не удалось получить URL для загруженного файла.");
+              throw new Error("Не удалось получить URL для загруженных файлов.");
             }
           }
 
-          await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
+          await api.createMessage(user.id, convId!, { ...userMessage, attachments: finalAttachments });
           
           const currentMessages = selectors.getCurrentMessages(store.state);
           const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
@@ -328,7 +336,7 @@ export function useChat(options: UseChatOptions = {}) {
           
           setPendingMessage(null);
           if (aiResponse && aiResponse.content.trim()) {
-            await addMessage(convId, aiResponse);
+            await addMessage(convId!, aiResponse);
             options.onResponseComplete?.(aiResponse);
           }
         } catch (error) {
@@ -336,16 +344,16 @@ export function useChat(options: UseChatOptions = {}) {
           setError(errorMsg);
           options.onError?.(errorMsg);
           setPendingMessage(null);
-          if (attachmentFile) {
-            await updateMessage(convId, tempMessageId, { attachments: tempAttachments.map(a => ({...a, isLoading: false})) });
+          if (attachmentFiles) {
+            await updateMessage(convId!, tempMessageId, { attachments: tempAttachments.map(a => ({...a, isLoading: false})) });
           }
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
+          if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         } finally {
           setIsLoading(false);
         }
       })();
     },
-    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision] // ✅ ИЗМЕНЕНИЕ
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision]
   );
 
   const editAndRegenerate = useCallback(
@@ -375,7 +383,7 @@ export function useChat(options: UseChatOptions = {}) {
         setIsLoading(false);
       }
     },
-    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision] // ✅ ИЗМЕНЕНИЕ
+    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision]
   );
 
   const clearError = useCallback(() => setError(null), []);

@@ -83,19 +83,18 @@ function Home() {
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
 
   const handleSend = useCallback(
-    // ✅ ИСПРАВЛЕНИЕ: Убран параметр title
-    async (message: string, attachment?: File | null, blobUrl?: string) => {
+    async (message: string, attachments?: File[] | null, blobUrls?: string[]) => {
       const textMessage = message || '';
+      const hasAttachments = attachments && attachments.length > 0;
       
-      if (!textMessage.trim() && !attachment || isLoading) {
+      if (!textMessage.trim() && !hasAttachments || isLoading) {
         return;
       }
       
       lockToBottom();      
       footerRef.current?.resetInput();
       
-      // ✅ ИСПРАВЛЕНИЕ: Вызов sendMessage без title
-      await sendMessage(textMessage, attachment, blobUrl);
+      await sendMessage(textMessage, attachments, blobUrls);
     },
     [isLoading, sendMessage, lockToBottom]
   );
