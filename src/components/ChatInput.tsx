@@ -10,7 +10,7 @@ import { MODELS } from './ModelSelector';
 interface ChatInputProps {
   input: string;
   setInput: (value: string) => void;
-  handleSubmit: (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => Promise<void>;
+  handleSubmit: (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => void;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -83,11 +83,11 @@ export const ChatInput = forwardRef((
     }
   };
 
-  const handleFormSubmit = async (e: React.FormEvent) => {
+  const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && attachments.length === 0) return;
-
-    await handleSubmit(e, attachments, previewUrls);
+    
+    handleSubmit(e, attachments, previewUrls);
     
     setAttachments([]);
     setPreviewUrls([]);
