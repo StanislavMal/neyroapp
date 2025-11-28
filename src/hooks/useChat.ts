@@ -8,6 +8,7 @@ import { selectors, store, actions } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
+import { MODELS } from '../components/ModelSelector';
 
 const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
   if (url.startsWith('data:')) {
@@ -55,7 +56,10 @@ export function useChat(options: UseChatOptions = {}) {
     createNewConversation,
     editMessageAndUpdate 
   } = useConversations();
-  
+
+  const currentModel = MODELS.find(m => m.id === settings?.model);
+  const supportsVision = currentModel?.supportsVision ?? false;
+
   const base64Cache = useRef(new Map<string, { mimeType: string; data: string }>());
 
   const textQueueRef = useRef<string>('');
@@ -200,13 +204,13 @@ export function useChat(options: UseChatOptions = {}) {
     [settings, activePrompt, startTypingAnimation, stopTypingAnimation, options, parseNDJSON]
   );
 
-  const prepareHistoryForAI = async (messages: Message[]): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+  const prepareHistoryForAI = async (messages: Message[], supportsVision: boolean): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
     const historyForAI: { role: 'user' | 'assistant', content: MessageContent }[] = [];
 
     for (const msg of messages) {
       if (msg.role === 'system') continue;
 
-      if (msg.attachments && msg.attachments.length > 0) {
+      if (supportsVision && msg.attachments && msg.attachments.length > 0) {
         const contentParts: ({ type: 'text', text: string } | { type: 'image_url', image_url: { url: string } })[] = [];
         
         if (msg.content) {
@@ -244,9 +248,18 @@ export function useChat(options: UseChatOptions = {}) {
   };
   
   const sendMessage = useCallback(
-    async (content: string, attachmentFile?: File | null, blobUrl?: string) => {
-      if ((!content.trim() && !attachmentFile) || isLoading || !user) {
-        if (blobUrl) URL.revokeObjectURL(blobUrl);
+    async (content: string, attachmentFiles?: File[] | null, blobUrls?: string[]) => {
+      const hasContent = content.trim();
+      const hasAttachments = attachmentFiles && attachmentFiles.length > 0;
+
+      if ((!hasContent && !hasAttachments) || isLoading || !user) {
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
+        return;
+      }
+
+      if (hasAttachments && !supportsVision) {
+        setError("The selected model does not support image attachments.");
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         return;
       }
 
@@ -255,90 +268,85 @@ export function useChat(options: UseChatOptions = {}) {
       setPendingMessage(null);
       
       let convId = currentConversationId;
-      if (!convId) {
-        const title = content.slice(0, 30) || "Image Message";
-        convId = await createNewConversation(title);
+      try {
         if (!convId) {
-          setError('Failed to create conversation');
-          setIsLoading(false);
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
-          return;
+          const title = content.slice(0, 30) || "Image Message";
+          convId = await createNewConversation(title);
+          if (!convId) {
+            throw new Error('Failed to create conversation');
+          }
         }
-      }
 
-      const tempMessageId = crypto.randomUUID();
-      let tempAttachments: Attachment[] = [];
+        const tempMessageId = crypto.randomUUID();
+        let tempAttachments: Attachment[] = [];
 
-      if (attachmentFile && blobUrl) {
-        tempAttachments.push({
-          type: 'image',
-          url: blobUrl,
-          path: '',
-          // ✅ ИЗМЕНЕНИЕ: Убираем индикатор загрузки с самого изображения
-          isLoading: false, 
-        });
-      }
-
-      const userMessage: Message = { 
-        id: tempMessageId, 
-        role: 'user', 
-        content: content.trim(),
-        attachments: tempAttachments,
-      };
-      actions.addMessageToCache(convId, userMessage);
-      
-      (async () => {
-        try {
-          let finalAttachments: Attachment[] = [];
-          if (attachmentFile) {
-            const fileToUpload = await compressImage(attachmentFile);
-            const filePath = await api.uploadAttachment(user.id, fileToUpload);
-            const signedUrls = await api.createSignedUrls([filePath]);
-
-            if (signedUrls.length > 0) {
-              finalAttachments.push({
-                type: 'image',
-                path: filePath,
-                url: signedUrls[0].signedUrl,
-                isLoading: false,
-              });
-              
-              if (blobUrl) URL.revokeObjectURL(blobUrl);
-              
-              await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
-            } else {
-              throw new Error("Не удалось получить URL для загруженного файла.");
-            }
-          }
-
-          await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
-          
-          const currentMessages = selectors.getCurrentMessages(store.state);
-          const messageHistoryForAI = await prepareHistoryForAI(currentMessages);
-          const aiResponse = await processAIResponse(messageHistoryForAI);
-          
-          setPendingMessage(null);
-          if (aiResponse && aiResponse.content.trim()) {
-            await addMessage(convId, aiResponse);
-            options.onResponseComplete?.(aiResponse);
-          }
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
-          setError(errorMsg);
-          options.onError?.(errorMsg);
-          setPendingMessage(null);
-          if (attachmentFile) {
-            await updateMessage(convId, tempMessageId, { attachments: tempAttachments.map(a => ({...a, isLoading: false})) });
-          }
-          if (blobUrl) URL.revokeObjectURL(blobUrl);
-        } finally {
-          setIsLoading(false);
+        if (blobUrls && blobUrls.length > 0) {
+          tempAttachments = blobUrls.map(url => ({
+            type: 'image',
+            url: url,
+            path: '',
+            isLoading: false,
+          }));
         }
-      })();
+
+        const userMessage: Message = { 
+          id: tempMessageId, 
+          role: 'user', 
+          content: content.trim(),
+          attachments: tempAttachments,
+        };
+        actions.addMessageToCache(convId, userMessage);
+
+        let finalAttachments: Attachment[] = [];
+        if (attachmentFiles && attachmentFiles.length > 0) {
+          const uploadPromises = attachmentFiles.map(async (file) => {
+            const fileToUpload = await compressImage(file);
+            return api.uploadAttachment(user.id, fileToUpload);
+          });
+
+          const filePaths = await Promise.all(uploadPromises);
+          const signedUrls = await api.createSignedUrls(filePaths);
+
+          if (signedUrls.length > 0) {
+            finalAttachments = signedUrls.map(item => ({
+              type: 'image',
+              path: item.path,
+              url: item.signedUrl,
+              isLoading: false,
+            }));
+
+            if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
+            
+            await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+          } else {
+            throw new Error("Не удалось получить URL для загруженных файлов.");
+          }
+        }
+
+        await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
+        
+        const currentMessages = selectors.getCurrentMessages(store.state);
+        const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
+        const aiResponse = await processAIResponse(messageHistoryForAI);
+        
+        setPendingMessage(null);
+        if (aiResponse && aiResponse.content.trim()) {
+          await addMessage(convId, aiResponse);
+          options.onResponseComplete?.(aiResponse);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
+        setError(errorMsg);
+        options.onError?.(errorMsg);
+        setPendingMessage(null);
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
+      } finally {
+        setIsLoading(false);
+      }
     },
-    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options]
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision]
   );
-
+  
   const editAndRegenerate = useCallback(
     async (messageId: string, newContent: string) => {
       if (!currentConversationId || isLoading) return;
@@ -348,8 +356,8 @@ export function useChat(options: UseChatOptions = {}) {
       try {
         const updatedHistory = await editMessageAndUpdate(messageId, newContent);
         if (!updatedHistory) throw new Error("Failed to update message");
-        
-        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory);
+
+        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory, supportsVision);
 
         const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
@@ -366,7 +374,7 @@ export function useChat(options: UseChatOptions = {}) {
         setIsLoading(false);
       }
     },
-    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options]
+    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision]
   );
 
   const clearError = useCallback(() => setError(null), []);

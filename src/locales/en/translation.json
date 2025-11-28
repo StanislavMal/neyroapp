@@ -50,5 +50,6 @@
   "temperature": "Temperature",
   "precise": "Precise",
   "creative": "Creative",
-  "sendMessage": "Send message"  
+  "sendMessage": "Send message",
+  "visionNotSupported": "The selected model does not support images"  
 }

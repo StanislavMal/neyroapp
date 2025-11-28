@@ -4,8 +4,7 @@ import { useState, memo, forwardRef, useImperativeHandle, useRef } from 'react';
 import { ChatInput } from './ChatInput';
 
 interface FooterProps {
-  // ✅ ИЗМЕНЕНИЕ: onSend теперь принимает blobUrl
-  onSend: (message: string, attachment?: File | null, blobUrl?: string) => Promise<void>;
+  onSend: (message: string, attachments?: File[] | null, blobUrls?: string[]) => Promise<void>;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -28,14 +27,13 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
         }
       }
     }));
-
-    // ✅ ИЗМЕНЕНИЕ: handleSubmit теперь принимает и передает blobUrl
-    const handleSubmit = async (e: React.FormEvent, attachment?: File | null, blobUrl?: string) => {
+    
+    const handleSubmit = async (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => {
       e.preventDefault();
       const messageToSend = input.trim();
-      if (!messageToSend && !attachment || isLoading) return;
+      if (!messageToSend && (!attachments || attachments.length === 0) || isLoading) return;
       
-      await onSend(messageToSend, attachment, blobUrl);
+      await onSend(messageToSend, attachments, blobUrls);
     };
 
     return (
