@@ -268,94 +268,85 @@ export function useChat(options: UseChatOptions = {}) {
       setPendingMessage(null);
       
       let convId = currentConversationId;
-      if (!convId) {
-        const title = content.slice(0, 30) || "Image Message";
-        convId = await createNewConversation(title);
+      try {
         if (!convId) {
-          setError('Failed to create conversation');
-          setIsLoading(false);
-          if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
-          return;
+          const title = content.slice(0, 30) || "Image Message";
+          convId = await createNewConversation(title);
+          if (!convId) {
+            throw new Error('Failed to create conversation');
+          }
         }
-      }
 
-      const tempMessageId = crypto.randomUUID();
-      let tempAttachments: Attachment[] = [];
+        const tempMessageId = crypto.randomUUID();
+        let tempAttachments: Attachment[] = [];
 
-      if (blobUrls && blobUrls.length > 0) {
-        tempAttachments = blobUrls.map(url => ({
-          type: 'image',
-          url: url,
-          path: '',
-          isLoading: false,
-        }));
-      }
-
-      const userMessage: Message = { 
-        id: tempMessageId, 
-        role: 'user', 
-        content: content.trim(),
-        attachments: tempAttachments,
-      };
-      actions.addMessageToCache(convId, userMessage);
-      
-      (async () => {
-        try {
-          let finalAttachments: Attachment[] = [];
-          if (attachmentFiles && attachmentFiles.length > 0) {
-            const uploadPromises = attachmentFiles.map(async (file) => {
-              const fileToUpload = await compressImage(file);
-              const filePath = await api.uploadAttachment(user.id, fileToUpload);
-              return filePath;
-            });
-
-            const filePaths = await Promise.all(uploadPromises);
-            const signedUrls = await api.createSignedUrls(filePaths);
-
-            if (signedUrls.length > 0) {
-              finalAttachments = signedUrls.map(item => ({
-                type: 'image',
-                path: item.path,
-                url: item.signedUrl,
-                isLoading: false,
-              }));
-
-              if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
-              
-              await updateMessage(convId!, tempMessageId, { attachments: finalAttachments });
-            } else {
-              throw new Error("Не удалось получить URL для загруженных файлов.");
-            }
-          }
-
-          await api.createMessage(user.id, convId!, { ...userMessage, attachments: finalAttachments });
-          
-          const currentMessages = selectors.getCurrentMessages(store.state);
-          const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
-          const aiResponse = await processAIResponse(messageHistoryForAI);
-          
-          setPendingMessage(null);
-          if (aiResponse && aiResponse.content.trim()) {
-            await addMessage(convId!, aiResponse);
-            options.onResponseComplete?.(aiResponse);
-          }
-        } catch (error) {
-          const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
-          setError(errorMsg);
-          options.onError?.(errorMsg);
-          setPendingMessage(null);
-          if (attachmentFiles) {
-            await updateMessage(convId!, tempMessageId, { attachments: tempAttachments.map(a => ({...a, isLoading: false})) });
-          }
-          if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
-        } finally {
-          setIsLoading(false);
+        if (blobUrls && blobUrls.length > 0) {
+          tempAttachments = blobUrls.map(url => ({
+            type: 'image',
+            url: url,
+            path: '',
+            isLoading: false,
+          }));
         }
-      })();
+
+        const userMessage: Message = { 
+          id: tempMessageId, 
+          role: 'user', 
+          content: content.trim(),
+          attachments: tempAttachments,
+        };
+        actions.addMessageToCache(convId, userMessage);
+
+        let finalAttachments: Attachment[] = [];
+        if (attachmentFiles && attachmentFiles.length > 0) {
+          const uploadPromises = attachmentFiles.map(async (file) => {
+            const fileToUpload = await compressImage(file);
+            return api.uploadAttachment(user.id, fileToUpload);
+          });
+
+          const filePaths = await Promise.all(uploadPromises);
+          const signedUrls = await api.createSignedUrls(filePaths);
+
+          if (signedUrls.length > 0) {
+            finalAttachments = signedUrls.map(item => ({
+              type: 'image',
+              path: item.path,
+              url: item.signedUrl,
+              isLoading: false,
+            }));
+
+            if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
+            
+            await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+          } else {
+            throw new Error("Не удалось получить URL для загруженных файлов.");
+          }
+        }
+
+        await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
+        
+        const currentMessages = selectors.getCurrentMessages(store.state);
+        const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
+        const aiResponse = await processAIResponse(messageHistoryForAI);
+        
+        setPendingMessage(null);
+        if (aiResponse && aiResponse.content.trim()) {
+          await addMessage(convId, aiResponse);
+          options.onResponseComplete?.(aiResponse);
+        }
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
+        setError(errorMsg);
+        options.onError?.(errorMsg);
+        setPendingMessage(null);
+        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
+      } finally {
+        setIsLoading(false);
+      }
     },
     [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision]
   );
-
+  
   const editAndRegenerate = useCallback(
     async (messageId: string, newContent: string) => {
       if (!currentConversationId || isLoading) return;

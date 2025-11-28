@@ -26,7 +26,7 @@ export const ChatInput = forwardRef((
   const { settings } = useSettings();
   const currentModel = MODELS.find(m => m.id === settings?.model);
   const supportsVision = currentModel?.supportsVision ?? false;
-
+  
   const [attachments, setAttachments] = useState<File[]>([]);
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -83,13 +83,15 @@ export const ChatInput = forwardRef((
     }
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
+  const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && attachments.length === 0) return;
-    
-    handleSubmit(e, attachments, previewUrls);
 
-    clearAllAttachments();
+    await handleSubmit(e, attachments, previewUrls);
+    
+    setAttachments([]);
+    setPreviewUrls([]);
+    currentBlobUrls.current = [];
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
