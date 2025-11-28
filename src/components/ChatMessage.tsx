@@ -35,6 +35,7 @@ interface ChatMessageProps {
   isStreaming?: boolean;
   onImageClick?: (messageId: string, attachmentIndex: number) => void;
 }
+
 const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, onClick: () => void, className?: string }) => (
   <div className={`relative w-full h-full ${className}`}>
     <button 
@@ -144,28 +145,28 @@ export const ChatMessage = memo(function ChatMessage({
   const rehypePlugins: Pluggable[] = useMemo(() => isAssistant ? [rehypeRaw, [rehypeSanitize, markdownSanitizeSchema], rehypeHighlight, rehypeKatex] : [rehypeHighlight, rehypeKatex], [isAssistant]);
   const markdownComponents = useMemo(() => ({ pre: CodeBlock, table: TableBlock, code: InlineCode }), []);
   const imageAttachments = useMemo(() => message.attachments?.filter(att => att.type === 'image') ?? [], [message.attachments]);
-  
+
   const renderImageGrid = () => {
     const count = imageAttachments.length;
     if (count === 0) return null;
-
+    
     switch (count) {
       case 1:
         return (
-          <div className="my-2 max-w-sm">
+          <div className="w-full max-w-sm">
             <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
           </div>
         );
       case 2:
         return (
-          <div className="my-2 grid grid-cols-2 gap-1 aspect-[2/1]">
+          <div className="w-full grid grid-cols-2 gap-1 aspect-[2/1]">
             <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
             <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} />
           </div>
         );
       case 3:
         return (
-          <div className="my-2 grid grid-cols-3 grid-rows-2 gap-1 aspect-[1.5/1]">
+          <div className="w-full grid grid-cols-3 grid-rows-2 gap-1 aspect-[1.5/1]">
             <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} className="col-span-2 row-span-2" />
             <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} className="col-start-3 row-start-1" />
             <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} className="col-start-3 row-start-2" />
@@ -173,7 +174,7 @@ export const ChatMessage = memo(function ChatMessage({
         );
       case 4:
         return (
-          <div className="my-2 grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
+          <div className="w-full grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
             {imageAttachments.map((att, index) => (
               <ImageTile key={index} attachment={att} onClick={() => onImageClick?.(message.id, index)} />
             ))}
@@ -181,7 +182,7 @@ export const ChatMessage = memo(function ChatMessage({
         );
       default: // 5 и более
         return (
-          <div className="my-2 grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
+          <div className="w-full grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
             <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
             <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} />
             <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} />
@@ -198,18 +199,18 @@ export const ChatMessage = memo(function ChatMessage({
         );
     }
   };
-
+  
   return (
     <div 
       className={`group relative flex flex-col w-full ${isAssistant ? 'items-start' : 'items-end'}`}
       data-message-id={message.id}
     >
       <div
-        className={`isolate rounded-lg px-3 py-2 transition-colors duration-200 ${
+        className={`isolate rounded-lg transition-colors duration-200 ${
           isAssistant
             ? 'w-full bg-gradient-to-r from-orange-500/5 to-red-600/5'
             : isEditing
-              ? 'w-full max-w-2xl bg-gray-600/50'
+              ? 'w-full max-w-2xl bg-gray-600/50 p-3'
               : 'max-w-2xl bg-gray-700/50'
         }`}
       >
@@ -228,23 +229,33 @@ export const ChatMessage = memo(function ChatMessage({
           </div>
         ) : (
           <div ref={messageContentRef}>
-            {renderImageGrid()}
+            {imageAttachments.length > 0 && (
+              <div className="p-1">
+                {renderImageGrid()}
+              </div>
+            )}
             
-            {isStreaming && !message.content ? (
+            {isStreaming && !message.content && imageAttachments.length === 0 ? (
               <TypingDots />
             ) : (
               <>
                 {message.content && (
-                  <ReactMarkdown
-                    className="prose dark:prose-invert max-w-none select-text"
-                    remarkPlugins={remarkPlugins}
-                    rehypePlugins={rehypePlugins}
-                    components={markdownComponents}
-                  >
-                    {message.content}
-                  </ReactMarkdown>
+                  <div className="px-3 py-2">
+                    <ReactMarkdown
+                      className="prose dark:prose-invert max-w-none select-text"
+                      remarkPlugins={remarkPlugins}
+                      rehypePlugins={rehypePlugins}
+                      components={markdownComponents}
+                    >
+                      {message.content}
+                    </ReactMarkdown>
+                  </div>
                 )}
-                {isStreaming && <TypingDots />}
+                {isStreaming && (
+                  <div className="px-3 py-2">
+                    <TypingDots />
+                  </div>
+                )}
               </>
             )}
           </div>
