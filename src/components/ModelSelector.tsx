@@ -13,6 +13,7 @@ interface ModelConfig {
   description: string;
   supportsReasoning?: boolean;
   requiresReasoning?: boolean;
+  supportsVision?: boolean;
 }
 
 export const MODELS: ModelConfig[] = [
@@ -24,6 +25,7 @@ export const MODELS: ModelConfig[] = [
     description: 'Fast & efficient',
     supportsReasoning: true,
     requiresReasoning: false,
+    supportsVision: true,
   },
   {
     id: 'gemini-2.5-pro',
@@ -33,6 +35,7 @@ export const MODELS: ModelConfig[] = [
     description: 'Most capable',
     supportsReasoning: true,
     requiresReasoning: true,
+    supportsVision: true,
   },
   {
     id: 'deepseek-chat',
@@ -42,6 +45,7 @@ export const MODELS: ModelConfig[] = [
     description: 'V3 General-purpose',
     supportsReasoning: false,
     requiresReasoning: false,
+    supportsVision: false,
   },
   {
     id: 'deepseek-reasoner',
@@ -51,6 +55,7 @@ export const MODELS: ModelConfig[] = [
     description: 'R1 Reasoning',
     supportsReasoning: true,
     requiresReasoning: false,
+    supportsVision: false,
   },
 ];
 

@@ -1,9 +1,11 @@
 // 📄 src/components/ChatInput.tsx
 
-import { forwardRef, type Ref, useState, useRef, useEffect } from 'react';
+import { forwardRef, type Ref, useState, useRef, useEffect, useCallback } from 'react';
 import { Send, Paperclip, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useMediaQuery } from '../hooks/useMediaQuery';
+import { useSettings } from '../store/hooks';
+import { MODELS } from './ModelSelector';
 
 interface ChatInputProps {
   input: string;
@@ -21,12 +23,30 @@ export const ChatInput = forwardRef((
   const { t } = useTranslation();
   const isDesktop = useMediaQuery('(min-width: 768px)');
   
+  const { settings } = useSettings();
+  const currentModel = MODELS.find(m => m.id === settings?.model);
+  const supportsVision = currentModel?.supportsVision ?? false;
+  
   const [attachment, setAttachment] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentBlobUrl = useRef<string | null>(null);
 
-  // Очистка URL при размонтировании компонента
+  const removeAttachment = useCallback(() => {
+    if (currentBlobUrl.current) {
+      URL.revokeObjectURL(currentBlobUrl.current);
+    }
+    setAttachment(null);
+    setPreviewUrl(null);
+    currentBlobUrl.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!supportsVision && attachment) {
+      removeAttachment();
+    }
+  }, [supportsVision, attachment, removeAttachment]);
+
   useEffect(() => {
     const blobUrl = currentBlobUrl.current;
     return () => {
@@ -37,7 +57,6 @@ export const ChatInput = forwardRef((
   }, []);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Аннулируем предыдущий URL, если он был
     if (currentBlobUrl.current) {
       URL.revokeObjectURL(currentBlobUrl.current);
     }
@@ -59,26 +78,14 @@ export const ChatInput = forwardRef((
     }
   };
 
-  const removeAttachment = () => {
-    if (currentBlobUrl.current) {
-      URL.revokeObjectURL(currentBlobUrl.current);
-    }
-    setAttachment(null);
-    setPreviewUrl(null);
-    currentBlobUrl.current = null;
-  };
-
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim() && !attachment) return;
     
-    // Передаем URL, но не аннулируем его здесь
     handleSubmit(e, attachment, previewUrl || undefined);
     
-    // Сбрасываем состояние, но не трогаем currentBlobUrl.current
     setAttachment(null);
     setPreviewUrl(null); 
-    // `currentBlobUrl.current` будет очищен в `useChat`
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -105,14 +112,22 @@ export const ChatInput = forwardRef((
           </div>
         )}
         <div className="relative flex items-center">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="absolute p-2 text-gray-400 transition-colors left-2 hover:text-orange-400 focus:outline-none z-10"
-            aria-label="Attach file"
-          >
-            <Paperclip className="w-4 h-4" />
-          </button>
+          <div className="group absolute left-2 z-10">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={!supportsVision}
+              className="p-2 text-gray-400 transition-colors hover:text-orange-400 focus:outline-none disabled:text-gray-600 disabled:cursor-not-allowed"
+              aria-label="Attach file"
+            >
+              <Paperclip className="w-4 h-4" />
+            </button>
+            {!supportsVision && (
+              <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-max px-2 py-1 bg-gray-900 text-white text-xs rounded-md shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                {t('visionNotSupported')}
+              </div>
+            )}
+          </div>
           <input
             type="file"
             ref={fileInputRef}
