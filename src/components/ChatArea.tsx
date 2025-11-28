@@ -17,6 +17,7 @@ interface ChatAreaProps {
   onStartEdit: (id: string) => void;
   onCancelEdit: () => void;
   onSaveEdit: (id: string, content: string) => void;
+  onImageClick?: (messageId: string, attachmentIndex: number) => void;
 }
 
 const ChatAreaComponent = memo(
@@ -30,6 +31,7 @@ const ChatAreaComponent = memo(
     onStartEdit,
     onCancelEdit,
     onSaveEdit,
+    onImageClick,
   }: ChatAreaProps) => {
     const { t } = useTranslation();
 
@@ -85,7 +87,8 @@ const ChatAreaComponent = memo(
                   showRegenerateButton={message.role === 'assistant'}
                   onRegenerate={() => handleRegenerate(message.id)}
                   isLoading={isThinking}
-                  isStreaming={false} 
+                  isStreaming={false}
+                  onImageClick={onImageClick}
                 />
               ))}
               

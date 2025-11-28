@@ -17,12 +17,12 @@ interface MobileLayoutProps {
   chatAreaProps: any;
   footerRef: RefObject<FooterRef | null>;
   messagesContainerRef: RefObject<HTMLElement | null>;
-  contentRef: RefObject<HTMLDivElement | null>; // ✅ ИСПРАВЛЕНИЕ: Тип теперь допускает null
+  contentRef: RefObject<HTMLDivElement | null>;
   shouldShowScrollDownButton: boolean;
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
   setIsModelSelectorOpen: (isOpen: boolean) => void;
-  handleSend: (message: string) => Promise<void>;
+  handleSend: (message: string, attachments?: File[] | null, blobUrls?: string[]) => Promise<void>;
   handleLogout: () => Promise<void>;
   scrollToBottom: () => void;
 }
