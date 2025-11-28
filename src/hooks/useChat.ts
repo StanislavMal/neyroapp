@@ -8,6 +8,7 @@ import { selectors, store, actions } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
+import { MODELS } from '../components/ModelSelector';
 
 const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
   if (url.startsWith('data:')) {
@@ -55,7 +56,10 @@ export function useChat(options: UseChatOptions = {}) {
     createNewConversation,
     editMessageAndUpdate 
   } = useConversations();
-  
+
+  const currentModel = MODELS.find(m => m.id === settings?.model);
+  const supportsVision = currentModel?.supportsVision ?? false;
+
   const base64Cache = useRef(new Map<string, { mimeType: string; data: string }>());
 
   const textQueueRef = useRef<string>('');
@@ -200,13 +204,13 @@ export function useChat(options: UseChatOptions = {}) {
     [settings, activePrompt, startTypingAnimation, stopTypingAnimation, options, parseNDJSON]
   );
 
-  const prepareHistoryForAI = async (messages: Message[]): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+  const prepareHistoryForAI = async (messages: Message[], supportsVision: boolean): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
     const historyForAI: { role: 'user' | 'assistant', content: MessageContent }[] = [];
 
     for (const msg of messages) {
       if (msg.role === 'system') continue;
 
-      if (msg.attachments && msg.attachments.length > 0) {
+      if (supportsVision && msg.attachments && msg.attachments.length > 0) {
         const contentParts: ({ type: 'text', text: string } | { type: 'image_url', image_url: { url: string } })[] = [];
         
         if (msg.content) {
@@ -250,6 +254,12 @@ export function useChat(options: UseChatOptions = {}) {
         return;
       }
 
+      if (attachmentFile && !supportsVision) {
+        setError("The selected model does not support image attachments.");
+        if (blobUrl) URL.revokeObjectURL(blobUrl);
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       setPendingMessage(null);
@@ -274,7 +284,6 @@ export function useChat(options: UseChatOptions = {}) {
           type: 'image',
           url: blobUrl,
           path: '',
-          // ✅ ИЗМЕНЕНИЕ: Убираем индикатор загрузки с самого изображения
           isLoading: false, 
         });
       }
@@ -314,7 +323,7 @@ export function useChat(options: UseChatOptions = {}) {
           await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
           
           const currentMessages = selectors.getCurrentMessages(store.state);
-          const messageHistoryForAI = await prepareHistoryForAI(currentMessages);
+          const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
           const aiResponse = await processAIResponse(messageHistoryForAI);
           
           setPendingMessage(null);
@@ -336,7 +345,7 @@ export function useChat(options: UseChatOptions = {}) {
         }
       })();
     },
-    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options]
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision] // ✅ ИЗМЕНЕНИЕ
   );
 
   const editAndRegenerate = useCallback(
@@ -348,8 +357,8 @@ export function useChat(options: UseChatOptions = {}) {
       try {
         const updatedHistory = await editMessageAndUpdate(messageId, newContent);
         if (!updatedHistory) throw new Error("Failed to update message");
-        
-        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory);
+
+        const messageHistoryForAI = await prepareHistoryForAI(updatedHistory, supportsVision);
 
         const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
@@ -366,7 +375,7 @@ export function useChat(options: UseChatOptions = {}) {
         setIsLoading(false);
       }
     },
-    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options]
+    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision] // ✅ ИЗМЕНЕНИЕ
   );
 
   const clearError = useCallback(() => setError(null), []);
