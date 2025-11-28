@@ -3,6 +3,7 @@
 import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router';
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import Lightbox from 'yet-another-react-lightbox';
+import Download from "yet-another-react-lightbox/plugins/download";
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { DesktopLayout, MobileLayout } from '../components';
@@ -35,7 +36,7 @@ function Home() {
   const [isInputFocused, setIsInputFocused] = useState(false);
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
   const [appState, setAppState] = useState<'loading' | 'error' | 'ready'>('loading');
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);  
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
@@ -86,7 +87,10 @@ function Home() {
   useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
 
   const allImages = useMemo(() => 
-    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image').map(att => ({ src: att.url })) ?? [])
+    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image').map(att => ({ 
+      src: att.url,
+      download: true 
+    })) ?? [])
   , [messages]);
 
   const handleImageClick = useCallback((messageId: string, attachmentIndex: number) => {
@@ -218,6 +222,7 @@ function Home() {
           close={() => setLightboxOpen(false)}
           slides={allImages}
           index={lightboxIndex}
+          plugins={[Download]}
         />
       </>
     );
