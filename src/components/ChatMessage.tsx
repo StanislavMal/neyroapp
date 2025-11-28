@@ -195,6 +195,22 @@ export const ChatMessage = memo(function ChatMessage({
     message.attachments?.filter(att => att.type === 'image') ?? [], 
     [message.attachments]
   );
+  const getGridClasses = (count: number) => {
+    switch (count) {
+      case 1:
+        return 'grid-cols-1';
+      case 2:
+      case 4:
+        return 'grid-cols-2';
+      case 3:
+        return 'grid-cols-2 grid-rows-2';
+      default:
+        return 'grid-cols-2';
+    }
+  };
+  
+  const containerClasses = getGridClasses(imageAttachments.length);
+  const visibleAttachments = imageAttachments.slice(0, 4);
 
   return (
     <div 
@@ -226,27 +242,44 @@ export const ChatMessage = memo(function ChatMessage({
         ) : (
           <div ref={messageContentRef}>
             {imageAttachments.length > 0 && (
-              <div className={`my-2 grid gap-2 ${imageAttachments.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                {imageAttachments.map((att, index) => (
-                  <div key={index} className="relative aspect-square">
-                    <button 
-                      onClick={() => onImageClick?.(message.id, index)}
-                      className="w-full h-full block rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      <img
-                        src={att.url}
-                        alt={`Attachment ${index + 1}`}
-                        className="w-full h-full object-cover cursor-pointer transition-opacity hover:opacity-80"
-                        loading="lazy"
-                      />
-                    </button>
-                    {att.isLoading && (
-                      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
-                        <div className="w-8 h-8 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+              <div className={`my-2 grid gap-1 ${containerClasses}`}>
+                {visibleAttachments.map((att, index) => {
+                  const itemClass = imageAttachments.length === 3 && index === 0 
+                    ? 'row-span-2' 
+                    : '';
+
+                  return (
+                    <div key={index} className={`relative aspect-square overflow-hidden rounded-lg ${itemClass}`}>
+                      <button 
+                        onClick={() => onImageClick?.(message.id, index)}
+                        className="w-full h-full block focus:outline-none focus:ring-2 focus:ring-orange-500"
+                      >
+                        <img
+                          src={att.url}
+                          alt={`Attachment ${index + 1}`}
+                          className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-105"
+                          loading="lazy"
+                          crossOrigin="anonymous"
+                        />
+                      </button>
+                      
+                      {index === 3 && imageAttachments.length > 4 && (
+                        <div 
+                          className="absolute inset-0 bg-black/60 flex items-center justify-center text-white text-2xl font-bold cursor-pointer"
+                          onClick={() => onImageClick?.(message.id, index)}
+                        >
+                          +{imageAttachments.length - 4}
+                        </div>
+                      )}
+
+                      {att.isLoading && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <div className="w-8 h-8 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
             
