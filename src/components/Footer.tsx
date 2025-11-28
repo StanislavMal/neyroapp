@@ -27,13 +27,13 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
         }
       }
     }));
-    
-    const handleSubmit = async (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => {
+
+    const handleSubmit = (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => {
       e.preventDefault();
       const messageToSend = input.trim();
       if (!messageToSend && (!attachments || attachments.length === 0) || isLoading) return;
       
-      await onSend(messageToSend, attachments, blobUrls);
+      onSend(messageToSend, attachments, blobUrls);
     };
 
     return (
