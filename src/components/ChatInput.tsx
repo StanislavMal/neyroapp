@@ -6,14 +6,19 @@ import { useTranslation } from 'react-i18next';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSettings } from '../store/hooks';
 import { MODELS } from './ModelSelector';
+import { compressImage } from '../utils/image-compression';
 
 interface ChatInputProps {
   input: string;
   setInput: (value: string) => void;
-  handleSubmit: (e: React.FormEvent, attachments?: File[] | null, blobUrls?: string[]) => void;
+  handleSubmit: (e: React.FormEvent, attachments?: FileWithThumbnail[] | null) => void;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
+}
+export interface FileWithThumbnail {
+  originalFile: File;
+  thumbnailUrl: string;
 }
 
 export const ChatInput = forwardRef((
@@ -26,14 +31,13 @@ export const ChatInput = forwardRef((
   const { settings } = useSettings();
   const currentModel = MODELS.find(m => m.id === settings?.model);
   const supportsVision = currentModel?.supportsVision ?? false;
-  
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+
+  const [attachments, setAttachments] = useState<FileWithThumbnail[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const currentBlobUrls = useRef<string[]>([]);
 
   const removeAttachment = useCallback((indexToRemove: number) => {
-    const urlToRemove = previewUrls[indexToRemove];
+    const urlToRemove = attachments[indexToRemove]?.thumbnailUrl;
     if (urlToRemove) {
       URL.revokeObjectURL(urlToRemove);
       const urlIndexInRef = currentBlobUrls.current.indexOf(urlToRemove);
@@ -42,14 +46,12 @@ export const ChatInput = forwardRef((
       }
     }
     setAttachments(prev => prev.filter((_, index) => index !== indexToRemove));
-    setPreviewUrls(prev => prev.filter((_, index) => index !== indexToRemove));
-  }, [previewUrls]);
+  }, [attachments]);
 
   const clearAllAttachments = useCallback(() => {
     currentBlobUrls.current.forEach(url => URL.revokeObjectURL(url));
     currentBlobUrls.current = [];
     setAttachments([]);
-    setPreviewUrls([]);
   }, []);
 
   useEffect(() => {
@@ -65,18 +67,31 @@ export const ChatInput = forwardRef((
     };
   }, []);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith('image/')) {
-        const newBlobUrl = URL.createObjectURL(file);
-        setAttachments(prev => [...prev, file]);
-        setPreviewUrls(prev => [...prev, newBlobUrl]);
-        currentBlobUrls.current.push(newBlobUrl);
+    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
+    if (imageFiles.length === 0) return;
+
+    const newAttachments: FileWithThumbnail[] = [];
+
+    for (const file of imageFiles) {
+      try {
+        const thumbnail = await compressImage(file, {
+          maxSizeMB: 0.2,
+          maxWidthOrHeight: 400, // 400px
+          initialQuality: 0.6,
+        });
+        const thumbnailUrl = URL.createObjectURL(thumbnail);
+        currentBlobUrls.current.push(thumbnailUrl);
+        newAttachments.push({ originalFile: file, thumbnailUrl });
+      } catch (error) {
+        console.error("Failed to create thumbnail for", file.name, error);
       }
     }
+    
+    setAttachments(prev => [...prev, ...newAttachments]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -87,11 +102,7 @@ export const ChatInput = forwardRef((
     e.preventDefault();
     if (!input.trim() && attachments.length === 0) return;
     
-    handleSubmit(e, attachments, previewUrls);
-    
-    setAttachments([]);
-    setPreviewUrls([]);
-    currentBlobUrls.current = [];
+    handleSubmit(e, attachments);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -104,11 +115,11 @@ export const ChatInput = forwardRef((
   return (
     <div className="bg-gray-900/80 backdrop-blur-sm border-t border-orange-500/10 p-4">
       <form onSubmit={handleFormSubmit}>
-        {previewUrls.length > 0 && (
+        {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
-            {previewUrls.map((url, index) => (
-              <div key={url} className="relative inline-block">
-                <img src={url} alt={`Preview ${index + 1}`} className="w-20 h-20 object-cover rounded-lg" />
+            {attachments.map((att, index) => (
+              <div key={att.thumbnailUrl} className="relative inline-block">
+                <img src={att.thumbnailUrl} alt={`Preview ${index + 1}`} className="w-20 h-20 object-cover rounded-lg" />
                 <button
                   type="button"
                   onClick={() => removeAttachment(index)}
