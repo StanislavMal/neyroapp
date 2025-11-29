@@ -9,6 +9,7 @@ import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
 import { MODELS } from '../components/ModelSelector';
+import type { FileWithThumbnail } from '../components/ChatInput';
 
 const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
   if (url.startsWith('data:')) {
@@ -246,20 +247,17 @@ export function useChat(options: UseChatOptions = {}) {
     }
     return historyForAI;
   };
-  
   const sendMessage = useCallback(
-    async (content: string, attachmentFiles?: File[] | null, blobUrls?: string[]) => {
+    async (content: string, attachmentsWithThumbnails?: FileWithThumbnail[] | null) => {
       const hasContent = content.trim();
-      const hasAttachments = attachmentFiles && attachmentFiles.length > 0;
+      const hasAttachments = attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0;
 
       if ((!hasContent && !hasAttachments) || isLoading || !user) {
-        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         return;
       }
 
       if (hasAttachments && !supportsVision) {
         setError("The selected model does not support image attachments.");
-        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
         return;
       }
 
@@ -272,20 +270,17 @@ export function useChat(options: UseChatOptions = {}) {
         if (!convId) {
           const title = content.slice(0, 30) || "Image Message";
           convId = await createNewConversation(title);
-          if (!convId) {
-            throw new Error('Failed to create conversation');
-          }
+          if (!convId) throw new Error('Failed to create conversation');
         }
 
         const tempMessageId = crypto.randomUUID();
         let tempAttachments: Attachment[] = [];
-
-        if (blobUrls && blobUrls.length > 0) {
-          tempAttachments = blobUrls.map(url => ({
+        if (attachmentsWithThumbnails) {
+          tempAttachments = attachmentsWithThumbnails.map(att => ({
             type: 'image',
-            url: url,
+            url: att.thumbnailUrl,
             path: '',
-            isLoading: false,
+            isLoading: true,
           }));
         }
 
@@ -298,8 +293,9 @@ export function useChat(options: UseChatOptions = {}) {
         actions.addMessageToCache(convId, userMessage);
 
         let finalAttachments: Attachment[] = [];
-        if (attachmentFiles && attachmentFiles.length > 0) {
-          const uploadPromises = attachmentFiles.map(async (file) => {
+        if (attachmentsWithThumbnails) {
+          const originalFiles = attachmentsWithThumbnails.map(att => att.originalFile);
+          const uploadPromises = originalFiles.map(async (file) => {
             const fileToUpload = await compressImage(file);
             return api.uploadAttachment(user.id, fileToUpload);
           });
@@ -315,8 +311,6 @@ export function useChat(options: UseChatOptions = {}) {
               isLoading: false,
             }));
 
-            if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
-            
             await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
           } else {
             throw new Error("Не удалось получить URL для загруженных файлов.");
@@ -339,7 +333,6 @@ export function useChat(options: UseChatOptions = {}) {
         setError(errorMsg);
         options.onError?.(errorMsg);
         setPendingMessage(null);
-        if (blobUrls) blobUrls.forEach(url => URL.revokeObjectURL(url));
       } finally {
         setIsLoading(false);
       }
