@@ -3,7 +3,7 @@
 import { useCallback } from 'react';
 import { useStore } from '@tanstack/react-store';
 import { actions, selectors, store, type Conversation, type Prompt, type UserSettings } from './store';
-import type { Message } from '../lib/ai/types';
+import type { Message, Attachment } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { dbManager, STORES } from '../services/db-manager';
@@ -265,7 +265,7 @@ export function useConversations() {
   const deleteConversation = useCallback(async (id: string) => {
     actions.deleteConversation(id);
     await dbManager.delete(STORES.conversations, id);
-
+    
     const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
     if (messagesInConv.length > 0) {
       await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
@@ -275,7 +275,6 @@ export function useConversations() {
       await api.deleteConversation(id);
     } catch (error) {
       console.error('Failed to run archive_and_purge_conversation on server:', error);
-      // Здесь можно добавить логику отката/повторной попытки.
     }
   }, []);
   
@@ -358,24 +357,62 @@ export function useConversations() {
     const originalConversation = conversations.find(c => c.id === id);
     if (!originalConversation) return;
 
+    let newConvData: Conversation | null = null;
+
     try {
       const { data: messagesToCopy, error: messagesError } = await api.fetchMessages(id);
-      if (messagesError || !messagesToCopy || messagesToCopy.length === 0) throw new Error('Не удалось загрузить сообщения для дублирования');
+      if (messagesError || !messagesToCopy) throw new Error('Не удалось загрузить сообщения для дублирования');
       
       const newTitle = `копия_${originalConversation.title}`;
-      const { data: newConvData, error: newConvError } = await api.createConversation(user.id, newTitle);
-      if (newConvError || !newConvData) throw new Error('Не удалось создать дубликат беседы');
+      const { data, error: newConvError } = await api.createConversation(user.id, newTitle);
+      if (newConvError || !data) throw new Error('Не удалось создать дубликат беседы');
+      newConvData = data as Conversation;
 
-      const { error: insertError } = await api.duplicateMessages(newConvData.id, messagesToCopy);
-      if (insertError) {
-        await api.deleteConversation(newConvData.id);
-        throw new Error('Не удалось вставить дублированные сообщения');
+      // @ts-ignore - message from DB has created_at
+      const newMessagesToInsert = await Promise.all(messagesToCopy.map(async (message: Message & { created_at: string }) => {
+        let newAttachments: Attachment[] = [];
+        if (message.attachments && message.attachments.length > 0) {
+          const signedUrls = await api.createSignedUrls(message.attachments.map(a => a.path));
+          const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
+
+          for (const attachment of message.attachments) {
+            const signedUrl = urlMap.get(attachment.path);
+            if (!signedUrl) continue;
+            
+            const response = await fetch(signedUrl);
+            const blob = await response.blob();
+            const file = new File([blob], attachment.path.split('/').pop() || 'file', { type: blob.type });
+
+            const newPath = await api.uploadAttachment(user.id, file);
+            const newSignedUrls = await api.createSignedUrls([newPath]);
+            if (newSignedUrls.length > 0) {
+              newAttachments.push({ type: 'image', path: newPath, url: newSignedUrls[0].signedUrl });
+            }
+          }
+        }
+        
+        return {
+          conversation_id: newConvData!.id,
+          user_id: user.id,
+          role: message.role,
+          content: message.content,
+          attachments: newAttachments.length > 0 ? newAttachments : undefined,
+          created_at: message.created_at, 
+        };
+      }));
+
+      if (newMessagesToInsert.length > 0) {
+        await api.bulkInsertMessages(newMessagesToInsert);
       }
       
       await syncConversations();
       setCurrentConversationId(newConvData.id);
+
     } catch (error) {
       console.error('Не удалось дублировать беседу:', error);
+      if (newConvData) {
+        await api.deleteConversation(newConvData.id);
+      }
     }
   }, [user, conversations, syncConversations, setCurrentConversationId]);
 

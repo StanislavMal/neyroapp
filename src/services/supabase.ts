@@ -3,7 +3,7 @@
 import { supabase } from '../utils/supabase';
 import { retryAsync } from '../utils/retry';
 import type { UserSettings } from '../store';
-import type { Message } from '../lib/ai/types';
+import type { Message, Attachment } from '../lib/ai/types';
 
 /**
  * =================================================================
@@ -80,7 +80,6 @@ export function updateConversationTitle(id: string, title: string) {
 }
 
 export async function deleteConversation(id: string) {
-  // Вызываем нашу новую SQL-функцию
   const { data: attachmentData, error: rpcError } = await retryAsync(() =>
     supabase.rpc('archive_and_purge_conversation', { conv_id: id })
   );
@@ -90,7 +89,6 @@ export async function deleteConversation(id: string) {
     throw rpcError;
   }
 
-  // Если функция вернула пути к файлам, удаляем их из Storage
   if (attachmentData && attachmentData.length > 0) {
     const pathsToDelete = attachmentData.map((item: any) => item.deleted_attachment_path);
     if (pathsToDelete.length > 0) {
@@ -132,16 +130,18 @@ export function deleteMessages(ids: string[]) {
   );
 }
 
-export function duplicateMessages(newConversationId: string, messagesToCopy: any[]) {
-  const newMessages = messagesToCopy.map((msg: any) => {
-    const { id, ...restOfMsg } = msg;
-    return {
-      ...restOfMsg,
-      conversation_id: newConversationId,
-    };
-  });
+type NewMessagePayload = {
+  conversation_id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments?: Attachment[];
+  created_at: string;
+};
+
+export function bulkInsertMessages(messages: NewMessagePayload[]) {
   return retryAsync(() => 
-    supabase.from('messages').insert(newMessages)
+    supabase.from('messages').insert(messages)
   );
 }
 
