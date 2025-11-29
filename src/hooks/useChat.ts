@@ -247,7 +247,7 @@ export function useChat(options: UseChatOptions = {}) {
     }
     return historyForAI;
   };
-  const sendMessage = useCallback(
+const sendMessage = useCallback(
     async (content: string, attachmentsWithThumbnails?: FileWithThumbnail[] | null) => {
       const hasContent = content.trim();
       const hasAttachments = attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0;
@@ -275,7 +275,7 @@ export function useChat(options: UseChatOptions = {}) {
 
         const tempMessageId = crypto.randomUUID();
         let tempAttachments: Attachment[] = [];
-        if (attachmentsWithThumbnails) {
+        if (attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0) {
           tempAttachments = attachmentsWithThumbnails.map(att => ({
             type: 'image',
             url: att.thumbnailUrl,
@@ -293,7 +293,7 @@ export function useChat(options: UseChatOptions = {}) {
         actions.addMessageToCache(convId, userMessage);
 
         let finalAttachments: Attachment[] = [];
-        if (attachmentsWithThumbnails) {
+        if (attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0) {
           const originalFiles = attachmentsWithThumbnails.map(att => att.originalFile);
           const uploadPromises = originalFiles.map(async (file) => {
             const fileToUpload = await compressImage(file);
@@ -301,19 +301,21 @@ export function useChat(options: UseChatOptions = {}) {
           });
 
           const filePaths = await Promise.all(uploadPromises);
-          const signedUrls = await api.createSignedUrls(filePaths);
+          if (filePaths.length > 0) {
+            const signedUrls = await api.createSignedUrls(filePaths);
 
-          if (signedUrls.length > 0) {
-            finalAttachments = signedUrls.map(item => ({
-              type: 'image',
-              path: item.path,
-              url: item.signedUrl,
-              isLoading: false,
-            }));
+            if (signedUrls.length > 0) {
+              finalAttachments = signedUrls.map(item => ({
+                type: 'image',
+                path: item.path,
+                url: item.signedUrl,
+                isLoading: false,
+              }));
 
-            await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
-          } else {
-            throw new Error("Не удалось получить URL для загруженных файлов.");
+              await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+            } else {
+              throw new Error("Не удалось получить URL для загруженных файлов.");
+            }
           }
         }
 
@@ -329,6 +331,7 @@ export function useChat(options: UseChatOptions = {}) {
           options.onResponseComplete?.(aiResponse);
         }
       } catch (error) {
+        console.error("Error in sendMessage:", error); // Полезно для отладки
         const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
         setError(errorMsg);
         options.onError?.(errorMsg);
