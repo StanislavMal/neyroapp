@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react';
 import { dbManager } from '../services/db-manager';
+import * as api from '../services/supabase';
 
-export function useCachedImage(path: string | undefined, signedUrl: string) {
+export function useCachedImage(path: string | undefined) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -12,11 +13,10 @@ export function useCachedImage(path: string | undefined, signedUrl: string) {
 
     async function loadImage() {
       if (!path) {
-        setImageUrl(signedUrl);
+        setImageUrl(null);
         return;
       }
 
-      // 1. Пытаемся получить Blob из кэша
       const cachedBlob = await dbManager.getCachedImageBlob(path);
       if (isMounted && cachedBlob) {
         objectUrl = URL.createObjectURL(cachedBlob);
@@ -24,14 +24,23 @@ export function useCachedImage(path: string | undefined, signedUrl: string) {
         return;
       }
 
-      // 2. Если в кэше нет, скачиваем, кэшируем и получаем Blob
-      const newBlob = await dbManager.cacheImage(path, signedUrl);
-      if (isMounted && newBlob) {
-        objectUrl = URL.createObjectURL(newBlob);
-        setImageUrl(objectUrl);
-      } else if (isMounted) {
-        // Fallback на signedUrl в случае ошибки кэширования
-        setImageUrl(signedUrl);
+      if (!isMounted) return;
+      try {
+        const signedUrls = await api.createSignedUrls([path]);
+        if (!isMounted || signedUrls.length === 0) return;
+        
+        const signedUrl = signedUrls[0].signedUrl;
+
+        const newBlob = await dbManager.cacheImage(path, signedUrl);
+        if (isMounted && newBlob) {
+          objectUrl = URL.createObjectURL(newBlob);
+          setImageUrl(objectUrl);
+        } else if (isMounted) {
+          setImageUrl(signedUrl);
+        }
+      } catch (error) {
+        console.error(`Failed to get signed URL for ${path}`, error);
+        if (isMounted) setImageUrl(null); // Показываем ошибку или плейсхолдер
       }
     }
 
@@ -39,12 +48,11 @@ export function useCachedImage(path: string | undefined, signedUrl: string) {
 
     return () => {
       isMounted = false;
-      // ✅ ВАЖНОЕ ИСПРАВЛЕНИЕ: Отзываем созданный URL при размонтировании компонента
       if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [path, signedUrl]);
+  }, [path]);
 
   return imageUrl;
 }

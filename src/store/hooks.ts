@@ -219,16 +219,7 @@ export function useConversations() {
       if (error) throw error;
 
       if (data && data.length > 0) {
-        let messages = data as unknown as Message[];
-        const attachmentPaths = messages.flatMap(m => m.attachments || []).map(att => att.path).filter(Boolean);
-        if (attachmentPaths.length > 0) {
-          const signedUrls = await api.createSignedUrls(attachmentPaths);
-          const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
-          messages = messages.map(m => ({
-            ...m,
-            attachments: m.attachments?.map(att => ({ ...att, url: urlMap.get(att.path) || att.url }))
-          }));
-        }
+        const messages = data as unknown as Message[];
         
         await dbManager.bulkPut(STORES.messages, messages);
         actions.mergeMessages(conversationId, messages);
@@ -368,7 +359,7 @@ export function useConversations() {
       if (newConvError || !data) throw new Error('Не удалось создать дубликат беседы');
       newConvData = data as Conversation;
 
-      // @ts-ignore - message from DB has created_at
+      // @ts-ignore
       const newMessagesToInsert = await Promise.all(messagesToCopy.map(async (message: Message & { created_at: string }) => {
         let newAttachments: Attachment[] = [];
         if (message.attachments && message.attachments.length > 0) {
@@ -402,6 +393,7 @@ export function useConversations() {
       }));
 
       if (newMessagesToInsert.length > 0) {
+        // @ts-ignore
         await api.bulkInsertMessages(newMessagesToInsert);
       }
       

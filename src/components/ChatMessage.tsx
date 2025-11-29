@@ -43,7 +43,7 @@ const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, o
     rootMargin: '200px 0px',
   });
   
-  const displayUrl = useCachedImage(attachment.path, attachment.url);
+  const displayUrl = useCachedImage(attachment.path);
 
   return (
     <div ref={ref} className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
