@@ -207,3 +207,23 @@ export async function deleteAttachments(paths: string[]) {
 
   return { data, error };
 }
+
+export function fetchUpdatedConversations(userId: string, since: string) {
+  return retryAsync(() =>
+    supabase.from('conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .gt('updated_at', since)
+      .order('created_at', { ascending: false })
+  );
+}
+
+export function fetchUpdatedMessages(conversationId: string, since: string) {
+  return retryAsync(() =>
+    supabase.from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .gt('updated_at', since)
+      .order('created_at', { ascending: true })
+  );
+}

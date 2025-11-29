@@ -5,6 +5,7 @@ import { usePrompts, useSettings } from '../store/hooks'
 import { type UserSettings } from '../store'
 import { useTranslation } from 'react-i18next'
 import { validatePromptName, validatePromptContent, sanitizeString } from '../utils/validation'
+import { dbManager } from '../services/db-manager';
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -58,11 +59,13 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
   const { settings, updateSettings, loadSettings } = useSettings();
 
   const [localSettings, setLocalSettings] = useState<UserSettings | null>(null);
+  const [cacheStats, setCacheStats] = useState({ size: 0, count: 0 });
 
   useEffect(() => {
     if (isOpen) {
       loadPrompts();
       loadSettings();
+      dbManager.getCacheStats().then(setCacheStats);
     }
   }, [isOpen, loadPrompts, loadSettings]);
 
@@ -162,10 +165,15 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
     i18n.changeLanguage(lang);
   };
 
-  // Обработчик logout
   const handleLogout = () => {
     onLogout();
     onClose();
+  };
+  
+  const handleClearCache = async () => {
+    await dbManager.clearImageCache();
+    const stats = await dbManager.getCacheStats();
+    setCacheStats(stats);
   };
 
   if (!isOpen || !localSettings) return null;
@@ -233,7 +241,6 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
                 </button>
               </div>
 
-              {/* Форма добавления промпта */}
               {isAddingPrompt && (
                 <div className="mb-3 space-y-3 p-3 rounded-lg bg-gray-800/50 border border-gray-600">
                   <input 
@@ -249,66 +256,25 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
                     placeholder={t('promptContentPlaceholder')} 
                     className="w-full h-32 px-3 py-2 text-sm text-white bg-gray-700 border border-gray-600 rounded-lg focus:border-orange-500 focus:ring-1 focus:ring-orange-500" 
                   />
-                  
-                  {validationError && (
-                    <p className="text-sm text-red-400">{validationError}</p>
-                  )}
-                  
+                  {validationError && (<p className="text-sm text-red-400">{validationError}</p>)}
                   <div className="flex justify-end gap-2">
-                    <button 
-                      onClick={() => { setIsAddingPrompt(false); setValidationError(null); }} 
-                      className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white focus:outline-none"
-                    >
-                      {t('cancel')}
-                    </button>
-                    <button 
-                      onClick={handleAddPrompt} 
-                      className="px-3 py-1.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-red-600 rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    >
-                      {t('savePrompt')}
-                    </button>
+                    <button onClick={() => { setIsAddingPrompt(false); setValidationError(null); }} className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white focus:outline-none">{t('cancel')}</button>
+                    <button onClick={handleAddPrompt} className="px-3 py-1.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-red-600 rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500">{t('savePrompt')}</button>
                   </div>
                 </div>
               )}
 
-              {/* Список промптов */}
               <div className="space-y-2">
                 {prompts.map((prompt) => (
                   <div key={prompt.id}>
                     {editingPromptId === prompt.id ? (
                       <div className="p-3 space-y-3 rounded-lg bg-gray-800/50 border-2 border-orange-500">
-                        <input 
-                          type="text" 
-                          value={editingPromptForm.name} 
-                          onChange={(e) => setEditingPromptForm(prev => ({ ...prev, name: e.target.value }))} 
-                          placeholder={t('promptNamePlaceholder')} 
-                          className="w-full px-3 py-2 text-sm text-white bg-gray-700 border border-gray-600 rounded-lg focus:border-orange-500 focus:ring-1 focus:ring-orange-500" 
-                          autoFocus
-                        />
-                        <textarea 
-                          value={editingPromptForm.content} 
-                          onChange={(e) => setEditingPromptForm(prev => ({ ...prev, content: e.target.value }))} 
-                          placeholder={t('promptContentPlaceholder')} 
-                          className="w-full h-32 px-3 py-2 text-sm text-white bg-gray-700 border border-gray-600 rounded-lg focus:border-orange-500 focus:ring-1 focus:ring-orange-500" 
-                        />
-                        
-                        {validationError && (
-                          <p className="text-sm text-red-400">{validationError}</p>
-                        )}
-                        
+                        <input type="text" value={editingPromptForm.name} onChange={(e) => setEditingPromptForm(prev => ({ ...prev, name: e.target.value }))} placeholder={t('promptNamePlaceholder')} className="w-full px-3 py-2 text-sm text-white bg-gray-700 border border-gray-600 rounded-lg focus:border-orange-500 focus:ring-1 focus:ring-orange-500" autoFocus />
+                        <textarea value={editingPromptForm.content} onChange={(e) => setEditingPromptForm(prev => ({ ...prev, content: e.target.value }))} placeholder={t('promptContentPlaceholder')} className="w-full h-32 px-3 py-2 text-sm text-white bg-gray-700 border border-gray-600 rounded-lg focus:border-orange-500 focus:ring-1 focus:ring-orange-500" />
+                        {validationError && (<p className="text-sm text-red-400">{validationError}</p>)}
                         <div className="flex justify-end gap-2">
-                          <button 
-                            onClick={handleCancelEditPrompt} 
-                            className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white focus:outline-none"
-                          >
-                            {t('cancel')}
-                          </button>
-                          <button 
-                            onClick={handleSaveEditPrompt} 
-                            className="px-3 py-1.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-red-600 rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                          >
-                            {t('savePrompt')}
-                          </button>
+                          <button onClick={handleCancelEditPrompt} className="px-3 py-1.5 text-sm font-medium text-gray-300 hover:text-white focus:outline-none">{t('cancel')}</button>
+                          <button onClick={handleSaveEditPrompt} className="px-3 py-1.5 text-sm font-medium text-white bg-gradient-to-r from-orange-500 to-red-600 rounded-lg hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500">{t('savePrompt')}</button>
                         </div>
                       </div>
                     ) : (
@@ -319,28 +285,11 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
                         </div>
                         <div className="flex items-center gap-2">
                           <label className="relative inline-flex items-center cursor-pointer">
-                            <input 
-                              type="checkbox" 
-                              className="sr-only peer" 
-                              checked={prompt.is_active} 
-                              onChange={() => setPromptActive(prompt.id, !prompt.is_active)} 
-                            />
+                            <input type="checkbox" className="sr-only peer" checked={prompt.is_active} onChange={() => setPromptActive(prompt.id, !prompt.is_active)} />
                             <div className="w-11 h-6 bg-gray-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500"></div>
                           </label>
-                          <button 
-                            onClick={() => handleStartEditPrompt(prompt.id, prompt.name, prompt.content)} 
-                            className="p-1 text-gray-400 hover:text-orange-500"
-                            title={t('editPrompt')}
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button 
-                            onClick={() => deletePrompt(prompt.id)} 
-                            className="p-1 text-gray-400 hover:text-red-500" 
-                            title={t('deletePrompt')}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <button onClick={() => handleStartEditPrompt(prompt.id, prompt.name, prompt.content)} className="p-1 text-gray-400 hover:text-orange-500" title={t('editPrompt')}><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => deletePrompt(prompt.id)} className="p-1 text-gray-400 hover:text-red-500" title={t('deletePrompt')}><Trash2 className="w-4 h-4" /></button>
                         </div>
                       </div>
                     )}
@@ -348,30 +297,31 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
                 ))}
               </div>
             </div>
+            
+            <div className="p-3 rounded-lg bg-gray-700/50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">Кэш изображений</label>
+                  <p className="text-xs text-gray-400">
+                    Хранит изображения локально для быстрой загрузки.
+                    Занимает: {(cacheStats.size / 1024 / 1024).toFixed(2)} МБ ({cacheStats.count} файлов)
+                  </p>
+                </div>
+                <button onClick={handleClearCache} className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-red-600/80 rounded-lg hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500">
+                  <Trash2 className="w-4 h-4" />
+                  Очистить
+                </button>
+              </div>
+            </div>
           </div>
           
           <div className="flex items-center justify-between gap-3 mt-6">
-            <button 
-              onClick={handleLogout} 
-              className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white rounded-lg focus:outline-none flex items-center gap-2 transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              {t('logout')}
+            <button onClick={handleLogout} className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white rounded-lg focus:outline-none flex items-center gap-2 transition-colors">
+              <LogOut className="w-4 h-4" />{t('logout')}
             </button>
-            
             <div className="flex gap-3">
-              <button 
-                onClick={handleClose} 
-                className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white focus:outline-none"
-              >
-                {t('cancel')}
-              </button>
-              <button 
-                onClick={handleSaveChanges} 
-                className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-gradient-to-r from-orange-500 to-red-600 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500"
-              >
-                {t('saveAndClose')}
-              </button>
+              <button onClick={handleClose} className="px-4 py-2 text-sm font-medium text-gray-300 hover:text-white focus:outline-none">{t('cancel')}</button>
+              <button onClick={handleSaveChanges} className="px-4 py-2 text-sm font-medium text-white rounded-lg bg-gradient-to-r from-orange-500 to-red-600 hover:opacity-90 focus:outline-none focus:ring-2 focus:ring-orange-500">{t('saveAndClose')}</button>
             </div>
           </div>
         </div>

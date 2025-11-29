@@ -3,61 +3,10 @@
 import { useCallback } from 'react';
 import { useStore } from '@tanstack/react-store';
 import { actions, selectors, store, type Conversation, type Prompt, type UserSettings } from './store';
-import type { Message, Attachment } from '../lib/ai/types';
+import type { Message } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
-
-const loadMessagesForConversation = async (conversationId: string) => {
-  if (store.state.messageCache[conversationId]) {
-    console.log(`[loadMessages] Сообщения для ${conversationId} найдены в кэше. Пропускаю загрузку.`);
-    return;
-  }
-
-  console.log('[loadMessages] Загрузка сообщений для беседы:', conversationId);
-  try {
-    const { data, error } = await api.fetchMessages(conversationId);
-    
-    if (error) throw error;
-
-    let messages = data.map((m: any) => ({
-      id: m.id,
-      role: m.role as 'user' | 'assistant' | 'system',
-      content: m.content,
-      attachments: m.attachments as Attachment[] | undefined,
-    })) as Message[];
-
-    const attachmentPaths = messages
-      .flatMap(m => m.attachments || [])
-      .map(att => att.path)
-      .filter(Boolean);
-
-    if (attachmentPaths.length > 0) {
-      const signedUrls = await api.createSignedUrls(attachmentPaths);
-      const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
-
-      messages = messages.map(m => {
-        if (!m.attachments) return m;
-        return {
-          ...m,
-          attachments: m.attachments.map(att => ({
-            ...att,
-            url: urlMap.get(att.path) || att.url,
-          })),
-        };
-      });
-    }
-    
-    console.log('[loadMessages] Загружено сообщений:', messages.length);
-    actions.setCachedMessages(conversationId, messages);
-
-  } catch (error) {
-    console.error('Не удалось загрузить сообщения после всех попыток:', error);
-    actions.setCachedMessages(conversationId, []);
-  }
-};
-
-// ... (хуки useSettings, usePrompts, useAppState без изменений) ...
-
+import { dbManager, STORES } from '../services/db-manager';
 export function useSettings() {
     const { user } = useAuth();
     const settings = useStore(store, s => selectors.getSettings(s));
@@ -65,58 +14,59 @@ export function useSettings() {
     const loadSettings = useCallback(async () => {
       if (!user) return;
       
+      const cachedSettings = await dbManager.get<UserSettings>(STORES.settings, user.id);
+      if (cachedSettings) {
+        actions.setSettings(cachedSettings);
+      }
+
       try {
         const { data, error } = await api.fetchSettings(user.id);
+        if (error) throw error;
         
-        if (error) {
-          console.error("Ошибка загрузки настроек:", error);
-          return;
-        }
+        const serverSettings = data?.settings || {};
+        const settingsWithDefaults: UserSettings = {
+            userId: user.id,
+            model: serverSettings.model || 'gemini-2.5-flash',
+            provider: serverSettings.provider || 'gemini',
+            system_instruction: serverSettings.system_instruction || '',
+            temperature: serverSettings.temperature ?? 0.7,
+            maxTokens: serverSettings.maxTokens || 8192,
+            reasoningEffort: serverSettings.reasoningEffort || 'none',
+            streamSpeed: serverSettings.streamSpeed || 30,
+        };
         
-        if (data && data.settings) {
-            const loadedSettings = data.settings;
-            const settingsWithDefaults: UserSettings = {
-                model: loadedSettings.model || 'gemini-2.5-flash',
-                provider: loadedSettings.provider || 'gemini',
-                system_instruction: loadedSettings.system_instruction || '',
-                temperature: loadedSettings.temperature ?? 0.7,
-                maxTokens: loadedSettings.maxTokens || 8192,
-                reasoningEffort: loadedSettings.reasoningEffort || 'none',
-                streamSpeed: loadedSettings.streamSpeed || 30,
-            };
-            actions.setSettings(settingsWithDefaults);
-        } else {
+        actions.setSettings(settingsWithDefaults);
+        await dbManager.put(STORES.settings, settingsWithDefaults);
+
+      } catch (error) {
+        console.error("Не удалось загрузить настройки с сервера:", error);
+        if (!cachedSettings) {
             const defaultSettings: UserSettings = {
-                model: 'gemini-2.5-flash',
-                provider: 'gemini',
-                system_instruction: '',
-                temperature: 0.7,
-                maxTokens: 8192,
-                reasoningEffort: 'none',
-                streamSpeed: 30,
+                userId: user.id,
+                model: 'gemini-2.5-flash', provider: 'gemini', system_instruction: '',
+                temperature: 0.7, maxTokens: 8192, reasoningEffort: 'none', streamSpeed: 30,
             };
             actions.setSettings(defaultSettings);
+            await dbManager.put(STORES.settings, defaultSettings);
             await api.updateSettings(user.id, defaultSettings);
         }
-      } catch (error) {
-        console.error("Не удалось загрузить настройки после всех попыток:", error);
       }
     }, [user]);
 
     const updateSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
         if (!user || !settings) return;
         const updated = { ...settings, ...newSettings };
+        
         actions.setSettings(updated);
+        await dbManager.put(STORES.settings, updated);
         
         try {
           const { error } = await api.updateSettings(user.id, updated);
-          if (error) {
-              console.error("Ошибка обновления настроек:", error);
-              actions.setSettings(settings);
-          }
+          if (error) throw error;
         } catch (error) {
-          console.error("Не удалось обновить настройки после всех попыток:", error);
+          console.error("Не удалось обновить настройки на сервере:", error);
           actions.setSettings(settings);
+          await dbManager.put(STORES.settings, settings);
         }
     }, [user, settings]);
 
@@ -130,40 +80,39 @@ export function usePrompts() {
 
     const loadPrompts = useCallback(async () => {
         if (!user) return;
+        const cached = await dbManager.getAll<Prompt>(STORES.prompts);
+        actions.setPrompts(cached);
+
         try {
           const { data, error } = await api.fetchPrompts(user.id);
-          if (error) {
-            console.error("Ошибка загрузки промптов:", error);
-            return;
+          if (error) throw error;
+          if (data) {
+            actions.setPrompts(data as Prompt[]);
+            await dbManager.clear(STORES.prompts);
+            await dbManager.bulkPut(STORES.prompts, data);
           }
-          if (data) actions.setPrompts(data as Prompt[]);
         } catch (error) {
-          console.error("Не удалось загрузить промпты после всех попыток:", error);
+          console.error("Не удалось синхронизировать промпты:", error);
         }
     }, [user]);
 
     const createPrompt = useCallback(async (name: string, content: string) => {
         if (!user) return;
         try {
-          const { error } = await api.createPrompt(user.id, name, content);
-          if (error) console.error("Ошибка создания промпта:", error);
-          else await loadPrompts();
+          await api.createPrompt(user.id, name, content);
+          await loadPrompts();
         } catch (error) {
-          console.error("Не удалось создать промпт после всех попыток:", error);
+          console.error("Не удалось создать промпт:", error);
         }
     }, [user, loadPrompts]);
 
     const updatePrompt = useCallback(async (id: string, name: string, content: string) => {
         if (!user) return;
         try {
-          const { error } = await api.updatePrompt(user.id, id, name, content);
-          if (error) {
-            console.error("Ошибка обновления промпта:", error);
-            throw error;
-          }
+          await api.updatePrompt(user.id, id, name, content);
           await loadPrompts();
         } catch (error) {
-          console.error("Не удалось обновить промпт после всех попыток:", error);
+          console.error("Не удалось обновить промпт:", error);
           throw error;
         }
     }, [user, loadPrompts]);
@@ -171,11 +120,10 @@ export function usePrompts() {
     const deletePrompt = useCallback(async (id: string) => {
         if (!user) return;
         try {
-          const { error } = await api.deletePrompt(id);
-          if (error) console.error("Ошибка удаления промпта:", error);
-          else await loadPrompts();
+          await api.deletePrompt(id);
+          await loadPrompts();
         } catch (error) {
-          console.error("Не удалось удалить промпт после всех попыток:", error);
+          console.error("Не удалось удалить промпт:", error);
         }
     }, [user, loadPrompts]);
 
@@ -189,25 +137,10 @@ export function usePrompts() {
         }
     }, [user, loadPrompts]);
     
-    return { 
-      prompts, 
-      activePrompt, 
-      loadPrompts, 
-      createPrompt, 
-      updatePrompt,
-      deletePrompt, 
-      setPromptActive 
-    };
+    return { prompts, activePrompt, loadPrompts, createPrompt, updatePrompt, deletePrompt, setPromptActive };
 }
 
-export function useAppState() {
-  const isLoading = useStore(store, s => selectors.getIsLoading(s));
-  return {
-    isLoading,
-    setLoading: actions.setLoading
-  };
-}
-
+// --- Хук для бесед и сообщений ---
 export function useConversations() {
   const { user } = useAuth();
   const conversations = useStore(store, s => selectors.getConversations(s));
@@ -215,89 +148,147 @@ export function useConversations() {
   const currentConversation = useStore(store, s => selectors.getCurrentConversation(s));
   const currentMessages = useStore(store, s => selectors.getCurrentMessages(s));
 
-  const setCurrentConversationId = useCallback((id: string | null) => {
-      actions.setCurrentConversationId(id);
-      if (id) {
-        loadMessagesForConversation(id);
+  const syncConversations = useCallback(async () => {
+    if (!user) return;
+    try {
+      const lastSync = await dbManager.getLastSyncTimestamp('conversations_sync') || new Date(0).toISOString();
+      const { data, error } = await api.fetchUpdatedConversations(user.id, lastSync);
+      if (error) throw error;
+      
+      if (data && data.length > 0) {
+        await dbManager.bulkPut(STORES.conversations, data);
+        actions.mergeConversations(data as Conversation[]);
       }
+      await dbManager.setLastSyncTimestamp('conversations_sync', new Date().toISOString());
+    } catch (error) {
+      console.error('Failed to sync conversations:', error);
+    }
+  }, [user]);
+
+  const loadInitialConversations = useCallback(async () => {
+    const cachedConversations = await dbManager.getAll<Conversation>(STORES.conversations);
+    cachedConversations.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    actions.setConversations(cachedConversations);
+  }, []);
+  
+  const loadMessagesForConversation = useCallback(async (conversationId: string) => {
+    const cachedMessages = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', conversationId);
+
+    cachedMessages.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0).getTime();
+      // @ts-ignore
+      const dateB = new Date(b.created_at || 0).getTime();
+      return dateA - dateB;
+    });
+
+    actions.setCachedMessages(conversationId, cachedMessages);
+
+    try {
+      const lastSync = await dbManager.getLastSyncTimestamp(`messages_sync_${conversationId}`) || new Date(0).toISOString();
+      const { data, error } = await api.fetchUpdatedMessages(conversationId, lastSync);
+      if (error) throw error;
+
+      if (data && data.length > 0) {
+        let messages = data as unknown as Message[];
+        const attachmentPaths = messages.flatMap(m => m.attachments || []).map(att => att.path).filter(Boolean);
+        if (attachmentPaths.length > 0) {
+          const signedUrls = await api.createSignedUrls(attachmentPaths);
+          const urlMap = new Map(signedUrls.map(item => [item.path, item.signedUrl]));
+          messages = messages.map(m => ({
+            ...m,
+            attachments: m.attachments?.map(att => ({ ...att, url: urlMap.get(att.path) || att.url }))
+          }));
+        }
+        
+        await dbManager.bulkPut(STORES.messages, messages);
+        actions.mergeMessages(conversationId, messages);
+      }
+      await dbManager.setLastSyncTimestamp(`messages_sync_${conversationId}`, new Date().toISOString());
+    } catch (error) {
+      console.error(`Failed to sync messages for ${conversationId}:`, error);
+    }
   }, []);
 
-  const loadConversations = useCallback(async () => {
-      if (!user) return;
-      try {
-        const { data, error } = await api.fetchConversations(user.id);
-        if (error) console.error('Ошибка загрузки бесед:', error);
-        else actions.setConversations(data as Conversation[]);
-      } catch (error) {
-        console.error('Не удалось загрузить беседы после всех попыток:', error);
-      }
-  }, [user]);
+  const setCurrentConversationId = useCallback((id: string | null) => {
+    actions.setCurrentConversationId(id);
+    if (id) {
+      loadMessagesForConversation(id);
+    }
+  }, [loadMessagesForConversation]);
 
   const createNewConversation = useCallback(async (title: string = 'Новая беседа') => {
-      if (!user) return null;
-      console.log('[useConversations] Создание новой беседы:', title);
-      try {
-        const { data, error } = await api.createConversation(user.id, title);
-        if (error || !data) { 
-          console.error('Не удалось создать беседу в Supabase:', error); 
-          return null; 
-        }
-        actions.addConversation(data as Conversation);
-        console.log('[useConversations] Новая беседа создана:', data.id);
-        return data.id;
-      } catch (error) {
-        console.error('Не удалось создать беседу после всех попыток:', error);
-        return null;
-      }
+    if (!user) return null;
+    try {
+      const { data, error } = await api.createConversation(user.id, title);
+      if (error || !data) throw error || new Error("Failed to create conversation");
+
+      const newConv = data as Conversation;
+      await dbManager.put(STORES.conversations, newConv);
+      actions.addConversation(newConv);
+      return newConv.id;
+    } catch (error) {
+      console.error('Failed to create new conversation:', error);
+      return null;
+    }
   }, [user]);
 
-  const updateConversationTitle = useCallback(async (id: string, title: string) => {
-      actions.updateConversationTitle(id, title);
-      try {
-        const { error } = await api.updateConversationTitle(id, title);
-        if (error) console.error('Не удалось обновить заголовок в Supabase:', error);
-      } catch (error) {
-        console.error('Не удалось обновить заголовок после всех попыток:', error);
-      }
-  }, []);
-
   const deleteConversation = useCallback(async (id: string) => {
-      const messagesInConv = store.state.messageCache[id] || (await api.fetchMessages(id)).data || [];
-      
-      const attachmentPaths = messagesInConv
-        .flatMap((msg: Message) => msg.attachments || [])
-        .map((att: Attachment) => att.path)
-        .filter(Boolean);
+    const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+    const messageIds = messagesInConv.map(m => m.id);
+    const attachmentPaths = messagesInConv.flatMap(m => m.attachments || []).map(att => att.path).filter(Boolean);
 
+    actions.deleteConversation(id);
+    await dbManager.delete(STORES.conversations, id);
+    await dbManager.bulkDelete(STORES.messages, messageIds);
+
+    try {
+      await api.deleteConversation(id);
       if (attachmentPaths.length > 0) {
         await api.deleteAttachments(attachmentPaths);
       }
-
-      actions.deleteConversation(id);
-      try {
-        const { error } = await api.deleteConversation(id);
-        if (error) console.error('Не удалось удалить беседу из Supabase:', error);
-      } catch (error) {
-        console.error('Не удалось удалить беседу после всех попыток:', error);
-      }
+    } catch (error) {
+      console.error('Failed to delete conversation from server:', error);
+    }
   }, []);
   
   const addMessage = useCallback(async (conversationId: string, message: Message) => {
     if (!user) return;
-    console.log('[useConversations] Добавление сообщения:', message.role, message.content.substring(0, 50));
-    actions.addMessageToCache(conversationId, message);
+    
+    // @ts-ignore
+    const fullMessage: Message = { ...message, conversation_id: conversationId, user_id: user.id, created_at: new Date().toISOString() };
+
+    actions.addMessageToCache(conversationId, fullMessage);
+    await dbManager.put(STORES.messages, fullMessage);
+
     try {
       const { error } = await api.createMessage(user.id, conversationId, message);
-      if (error) console.error('Не удалось добавить сообщение в Supabase:', error);
-      else console.log('[useConversations] Сообщение сохранено в Supabase:', message.id);
+      if (error) throw error;
+      await syncConversations();
     } catch (error) {
-      console.error('Не удалось добавить сообщение после всех попыток:', error);
+      console.error('Failed to save message to server:', error);
     }
-  }, [user]);
+  }, [user, syncConversations]);
 
-  // ✅ НОВЫЙ ACTION: Для обновления временного сообщения
-  const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedMessage: Partial<Message>) => {
-    actions.updateMessageInCache(conversationId, messageId, updatedMessage);
+  const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedFields: Partial<Message>) => {
+    actions.updateMessageInCache(conversationId, messageId, updatedFields);
+    const message = selectors.getCurrentMessages(store.state).find(m => m.id === messageId);
+    if (message) {
+      await dbManager.put(STORES.messages, message);
+    }
+  }, []);
+
+  const updateConversationTitle = useCallback(async (id: string, title: string) => {
+    actions.updateConversationTitle(id, title);
+    const conversation = await dbManager.get<Conversation>(STORES.conversations, id);
+    if (conversation) {
+        conversation.title = title;
+        await dbManager.put(STORES.conversations, conversation);
+    }
+    try {
+      await api.updateConversationTitle(id, title);
+    } catch (error) {
+      console.error('Не удалось обновить заголовок в Supabase:', error);
+    }
   }, []);
 
   const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
@@ -306,42 +297,32 @@ export function useConversations() {
 
     const originalMessages = selectors.getCurrentMessages(store.state);
     const originalMessageIndex = originalMessages.findIndex(m => m.id === messageId);
-    if (originalMessageIndex === -1) {
-      console.error('Сообщение не найдено:', messageId);
-      return null;
-    }
+    if (originalMessageIndex === -1) return null;
 
     const messagesToDelete = originalMessages.slice(originalMessageIndex + 1);
     const idsToDelete = messagesToDelete.map(m => m.id);
-
-    const attachmentPathsToDelete = messagesToDelete
-      .flatMap(msg => msg.attachments || [])
-      .map(att => att.path)
-      .filter(Boolean);
+    const attachmentPathsToDelete = messagesToDelete.flatMap(msg => msg.attachments || []).map(att => att.path).filter(Boolean);
 
     actions.editCachedMessage(convId, messageId, newContent);
+    const updatedMessages = selectors.getCurrentMessages(store.state);
+    await dbManager.bulkPut(STORES.messages, updatedMessages);
+    await dbManager.bulkDelete(STORES.messages, idsToDelete);
     
     try {
       const promises = [];
-      if (attachmentPathsToDelete.length > 0) {
-        promises.push(api.deleteAttachments(attachmentPathsToDelete));
-      }
-      if (idsToDelete.length > 0) {
-        promises.push(api.deleteMessages(idsToDelete));
-      }
+      if (attachmentPathsToDelete.length > 0) promises.push(api.deleteAttachments(attachmentPathsToDelete));
+      if (idsToDelete.length > 0) promises.push(api.deleteMessages(idsToDelete));
       promises.push(api.updateMessageContent(messageId, newContent));
       
-      const results = await Promise.all(promises);
-      for (const res of results) {
-        if (res.error) throw res.error;
-      }
+      await Promise.all(promises);
     } catch (error) {
       console.error('Не удалось обновить сообщения в Supabase после редактирования:', error);
       actions.setCachedMessages(convId, originalMessages);
+      await dbManager.bulkPut(STORES.messages, originalMessages);
       return null;
     }
     
-    return selectors.getCurrentMessages(store.state);
+    return updatedMessages;
   }, []);
   
   const duplicateConversation = useCallback(async (id: string) => {
@@ -351,10 +332,8 @@ export function useConversations() {
 
     try {
       const { data: messagesToCopy, error: messagesError } = await api.fetchMessages(id);
-      if (messagesError) throw new Error('Не удалось загрузить сообщения для дублирования');
-      if (!messagesToCopy || messagesToCopy.length === 0) throw new Error('Нельзя дублировать пустую беседу');
-      if (messagesToCopy[0].role !== 'user') throw new Error('Первое сообщение должно быть от пользователя');
-
+      if (messagesError || !messagesToCopy || messagesToCopy.length === 0) throw new Error('Не удалось загрузить сообщения для дублирования');
+      
       const newTitle = `копия_${originalConversation.title}`;
       const { data: newConvData, error: newConvError } = await api.createConversation(user.id, newTitle);
       if (newConvError || !newConvData) throw new Error('Не удалось создать дубликат беседы');
@@ -365,12 +344,12 @@ export function useConversations() {
         throw new Error('Не удалось вставить дублированные сообщения');
       }
       
-      await loadConversations();
+      await syncConversations();
       setCurrentConversationId(newConvData.id);
     } catch (error) {
       console.error('Не удалось дублировать беседу:', error);
     }
-  }, [user, conversations, loadConversations, setCurrentConversationId]);
+  }, [user, conversations, syncConversations, setCurrentConversationId]);
 
   return {
     conversations,
@@ -378,12 +357,13 @@ export function useConversations() {
     currentConversation,
     messages: currentMessages,
     setCurrentConversationId,
-    loadConversations,
+    loadInitialConversations,
+    syncConversations,
     createNewConversation,
     updateConversationTitle,
     deleteConversation,
     addMessage,
-    updateMessage, // ✅ Экспортируем новый action
+    updateMessage,
     editMessageAndUpdate,
     duplicateConversation,
   };

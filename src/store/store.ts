@@ -8,6 +8,8 @@ export interface Prompt {
   name: string
   content: string
   is_active: boolean
+  user_id?: string
+  created_at?: string
 }
 
 export interface UserSettings {
@@ -18,6 +20,7 @@ export interface UserSettings {
   maxTokens?: number
   reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
   streamSpeed?: number
+  userId?: string
 }
 
 export interface Conversation {
@@ -25,6 +28,7 @@ export interface Conversation {
   title: string
   user_id: string
   created_at: string
+  updated_at: string
 }
 
 export interface State {
@@ -49,7 +53,6 @@ const initialState: State = {
 export const store = new Store<State>(initialState)
 
 export const actions = {
-  // ... (другие actions без изменений) ...
   resetStore: () => {
     store.setState(() => initialState);
   },
@@ -67,6 +70,9 @@ export const actions = {
   addMessageToCache: (conversationId: string, message: Message) => {
     store.setState(state => {
       const existingMessages = state.messageCache[conversationId] || [];
+      if (existingMessages.some(m => m.id === message.id)) {
+        return state;
+      }
       return {
         ...state,
         messageCache: {
@@ -77,7 +83,6 @@ export const actions = {
     });
   },
 
-  // ✅ НОВЫЙ ACTION: Для обновления временного сообщения
   updateMessageInCache: (conversationId: string, messageId: string, updatedMessage: Partial<Message>) => {
     store.setState(state => {
       const messages = state.messageCache[conversationId] || [];
@@ -170,7 +175,41 @@ export const actions = {
   
   setLoading: (isLoading: boolean) => {
     store.setState(state => ({ ...state, isLoading }))
-  }
+  },
+  
+  mergeConversations: (newConversations: Conversation[]) => {
+    store.setState(state => {
+      const convMap = new Map(state.conversations.map(c => [c.id, c]));
+      newConversations.forEach(c => convMap.set(c.id, c));
+      const merged = Array.from(convMap.values())
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      return { ...state, conversations: merged };
+    });
+  },
+
+  mergeMessages: (conversationId: string, newMessages: Message[]) => {
+    store.setState(state => {
+      const existingMessages = state.messageCache[conversationId] || [];
+      const msgMap = new Map(existingMessages.map(m => [m.id, m]));
+      newMessages.forEach(m => msgMap.set(m.id, m));
+      
+      const merged = Array.from(msgMap.values()).sort((a, b) => {
+        // @ts-ignore
+        const dateA = new Date(a.created_at || 0).getTime();
+        // @ts-ignore
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateA - dateB;
+      });
+
+      return {
+        ...state,
+        messageCache: {
+          ...state.messageCache,
+          [conversationId]: merged,
+        },
+      };
+    });
+  },
 }
 
 export const selectors = {
