@@ -18,6 +18,7 @@ import { TableBlock } from './TableBlock';
 import { InlineCode } from './InlineCode';
 import { TypingDots } from './TypingDots';
 import { useCopyToClipboard, useCachedImage } from '../hooks';
+import { useAuth } from '../providers/AuthProvider';
 import { 
   htmlToPlainText, 
   extractLatexFromKatex, 
@@ -37,13 +38,13 @@ interface ChatMessageProps {
   onImageClick?: (messageId: string, attachmentIndex: number) => void;
 }
 
-const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, onClick: () => void, className?: string }) => {
+const ImageTile = ({ attachment, onClick, className = '', userId }: { attachment: any, onClick: () => void, className?: string, userId: string | null }) => { // ✅ ИСПРАВЛЕНИЕ
   const { ref, inView } = useInView({
     triggerOnce: true,
     rootMargin: '200px 0px',
   });
   
-  const displayUrl = useCachedImage(attachment.path);
+  const displayUrl = useCachedImage(attachment.path, userId);
 
   return (
     <div ref={ref} className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
@@ -89,6 +90,7 @@ export const ChatMessage = memo(function ChatMessage({
   isStreaming = false,
   onImageClick,
 }: ChatMessageProps) {
+  const { user } = useAuth();
   const isAssistant = message.role === 'assistant';
   const [editedContent, setEditedContent] = useState(message.content);
   const { isCopied, copyToClipboard } = useCopyToClipboard({ timeout: 2000 });
@@ -171,44 +173,46 @@ export const ChatMessage = memo(function ChatMessage({
     const count = imageAttachments.length;
     if (count === 0) return null;
     
+    const userId = user?.id ?? null;
+
     switch (count) {
       case 1:
         return (
           <div className="w-full max-w-sm">
-            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
+            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} userId={userId} />
           </div>
         );
       case 2:
         return (
           <div className="w-full grid grid-cols-2 gap-1 aspect-[2/1]">
-            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
-            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} />
+            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} userId={userId} />
+            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} userId={userId} />
           </div>
         );
       case 3:
         return (
           <div className="w-full grid grid-cols-3 grid-rows-2 gap-1 aspect-[1.5/1]">
-            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} className="col-span-2 row-span-2" />
-            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} className="col-start-3 row-start-1" />
-            <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} className="col-start-3 row-start-2" />
+            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} className="col-span-2 row-span-2" userId={userId} />
+            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} className="col-start-3 row-start-1" userId={userId} />
+            <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} className="col-start-3 row-start-2" userId={userId} />
           </div>
         );
       case 4:
         return (
           <div className="w-full grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
             {imageAttachments.map((att, index) => (
-              <ImageTile key={index} attachment={att} onClick={() => onImageClick?.(message.id, index)} />
+              <ImageTile key={index} attachment={att} onClick={() => onImageClick?.(message.id, index)} userId={userId} />
             ))}
           </div>
         );
       default: // 5 и более
         return (
           <div className="w-full grid grid-cols-2 grid-rows-2 gap-1 aspect-square">
-            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} />
-            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} />
-            <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} />
+            <ImageTile attachment={imageAttachments[0]} onClick={() => onImageClick?.(message.id, 0)} userId={userId} />
+            <ImageTile attachment={imageAttachments[1]} onClick={() => onImageClick?.(message.id, 1)} userId={userId} />
+            <ImageTile attachment={imageAttachments[2]} onClick={() => onImageClick?.(message.id, 2)} userId={userId} />
             <div className="relative w-full h-full">
-              <ImageTile attachment={imageAttachments[3]} onClick={() => onImageClick?.(message.id, 3)} />
+              <ImageTile attachment={imageAttachments[3]} onClick={() => onImageClick?.(message.id, 3)} userId={userId} />
               <div 
                 onClick={() => onImageClick?.(message.id, 3)}
                 className="absolute inset-0 bg-black/60 rounded-lg flex items-center justify-center text-white text-2xl font-bold cursor-pointer"

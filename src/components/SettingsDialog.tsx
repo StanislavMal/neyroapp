@@ -1,11 +1,13 @@
 // 📄 src/components/SettingsDialog.tsx
+
 import { useState, useEffect, useRef } from 'react'
 import { PlusCircle, Trash2, Edit2, HelpCircle, LogOut } from 'lucide-react'
 import { usePrompts, useSettings } from '../store/hooks'
 import { type UserSettings } from '../store'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '../providers/AuthProvider'
 import { validatePromptName, validatePromptContent, sanitizeString } from '../utils/validation'
-import { dbManager } from '../services/db-manager';
+import { getDbManager } from '../services/db-manager';
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -47,6 +49,7 @@ function InfoTooltip({ text }: { text: string }) {
 }
 
 export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProps) {
+  const { user } = useAuth();
   const { t, i18n } = useTranslation(); 
   const [promptForm, setPromptForm] = useState({ name: '', content: '' })
   const [isAddingPrompt, setIsAddingPrompt] = useState(false)
@@ -62,12 +65,13 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
   const [cacheStats, setCacheStats] = useState({ size: 0, count: 0 });
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && user) {
+      const dbManager = getDbManager(user.id);
       loadPrompts();
       loadSettings();
       dbManager.getCacheStats().then(setCacheStats);
     }
-  }, [isOpen, loadPrompts, loadSettings]);
+  }, [isOpen, user, loadPrompts, loadSettings]);
 
   useEffect(() => {
     if (settings) {
@@ -171,6 +175,8 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
   };
   
   const handleClearCache = async () => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     await dbManager.clearImageCache();
     const stats = await dbManager.getCacheStats();
     setCacheStats(stats);
@@ -301,18 +307,24 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
             <div className="p-3 rounded-lg bg-gray-700/50">
               <div className="flex items-center justify-between">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">Кэш изображений</label>
+                  <div className="flex items-center mb-1">
+                    <label className="block text-sm font-medium text-gray-300">{t('imageCache')}</label>
+                    <InfoTooltip text={t('imageCacheNote')} />
+                  </div>
                   <p className="text-xs text-gray-400">
-                    Хранит изображения локально для быстрой загрузки.
                     Занимает: {(cacheStats.size / 1024 / 1024).toFixed(2)} МБ ({cacheStats.count} файлов)
                   </p>
                 </div>
-                <button onClick={handleClearCache} className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-white bg-red-600/80 rounded-lg hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-500">
+                <button 
+                  onClick={handleClearCache} 
+                  className="flex-shrink-0 p-2 text-gray-400 bg-gray-700/50 rounded-lg hover:bg-gray-700 hover:text-white focus:outline-none focus:ring-2 focus:ring-orange-500 transition-colors"
+                  title={t('clearImageCache') || undefined}
+                >
                   <Trash2 className="w-4 h-4" />
-                  Очистить
                 </button>
               </div>
             </div>
+
           </div>
           
           <div className="flex items-center justify-between gap-3 mt-6">

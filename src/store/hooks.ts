@@ -6,7 +6,7 @@ import { actions, selectors, store, type Conversation, type Prompt, type UserSet
 import type { Message, Attachment } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
-import { dbManager, STORES } from '../services/db-manager';
+import { getDbManager, STORES } from '../services/db-manager';
 
 // --- Хук для настроек ---
 export function useSettings() {
@@ -15,6 +15,7 @@ export function useSettings() {
 
     const loadSettings = useCallback(async () => {
       if (!user) return;
+      const dbManager = getDbManager(user.id);
       
       const cachedSettings = await dbManager.get<UserSettings>(STORES.settings, user.id);
       if (cachedSettings) {
@@ -57,6 +58,7 @@ export function useSettings() {
 
     const updateSettings = useCallback(async (newSettings: Partial<UserSettings>) => {
         if (!user || !settings) return;
+        const dbManager = getDbManager(user.id);
         const updated = { ...settings, ...newSettings };
         
         actions.setSettings(updated);
@@ -84,6 +86,7 @@ export function usePrompts() {
 
     const loadPrompts = useCallback(async () => {
         if (!user) return;
+        const dbManager = getDbManager(user.id);
         const cached = await dbManager.getAll<Prompt>(STORES.prompts);
         actions.setPrompts(cached);
 
@@ -154,6 +157,7 @@ export function useConversations() {
 
   const syncConversations = useCallback(async () => {
     if (!user) return;
+    const dbManager = getDbManager(user.id);
     try {
       const lastSync = await dbManager.getLastSyncTimestamp('conversations_sync') || new Date(0).toISOString();
       const { data, error } = await api.fetchUpdatedConversations(user.id, lastSync);
@@ -195,12 +199,16 @@ export function useConversations() {
   }, [user]);
 
   const loadInitialConversations = useCallback(async () => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     const cachedConversations = await dbManager.getAll<Conversation>(STORES.conversations);
     cachedConversations.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
     actions.setConversations(cachedConversations);
-  }, []);
+  }, [user]);
   
   const loadMessagesForConversation = useCallback(async (conversationId: string) => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     const cachedMessages = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', conversationId);
     
     cachedMessages.sort((a, b) => {
@@ -228,7 +236,7 @@ export function useConversations() {
     } catch (error) {
       console.error(`Failed to sync messages for ${conversationId}:`, error);
     }
-  }, []);
+  }, [user]);
 
   const setCurrentConversationId = useCallback((id: string | null) => {
     actions.setCurrentConversationId(id);
@@ -239,6 +247,7 @@ export function useConversations() {
 
   const createNewConversation = useCallback(async (title: string = 'Новая беседа') => {
     if (!user) return null;
+    const dbManager = getDbManager(user.id);
     try {
       const { data, error } = await api.createConversation(user.id, title);
       if (error || !data) throw error || new Error("Failed to create conversation");
@@ -254,6 +263,8 @@ export function useConversations() {
   }, [user]);
 
   const deleteConversation = useCallback(async (id: string) => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     actions.deleteConversation(id);
     await dbManager.delete(STORES.conversations, id);
     
@@ -267,10 +278,11 @@ export function useConversations() {
     } catch (error) {
       console.error('Failed to run archive_and_purge_conversation on server:', error);
     }
-  }, []);
+  }, [user]);
   
   const addMessage = useCallback(async (conversationId: string, message: Message) => {
     if (!user) return;
+    const dbManager = getDbManager(user.id);
     
     // @ts-ignore
     const fullMessage: Message = { ...message, conversation_id: conversationId, user_id: user.id, created_at: new Date().toISOString() };
@@ -288,14 +300,18 @@ export function useConversations() {
   }, [user, syncConversations]);
 
   const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedFields: Partial<Message>) => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     actions.updateMessageInCache(conversationId, messageId, updatedFields);
     const message = selectors.getCurrentMessages(store.state).find(m => m.id === messageId);
     if (message) {
       await dbManager.put(STORES.messages, message);
     }
-  }, []);
+  }, [user]);
 
   const updateConversationTitle = useCallback(async (id: string, title: string) => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     actions.updateConversationTitle(id, title);
     const conversation = await dbManager.get<Conversation>(STORES.conversations, id);
     if (conversation) {
@@ -307,9 +323,11 @@ export function useConversations() {
     } catch (error) {
       console.error('Не удалось обновить заголовок в Supabase:', error);
     }
-  }, []);
+  }, [user]);
 
   const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
+    if (!user) return null;
+    const dbManager = getDbManager(user.id);
     const convId = selectors.getCurrentConversationId(store.state);
     if (!convId) return null;
 
@@ -341,7 +359,7 @@ export function useConversations() {
     }
     
     return updatedMessages;
-  }, []);
+  }, [user]);
   
   const duplicateConversation = useCallback(async (id: string) => {
     if (!user) return;
