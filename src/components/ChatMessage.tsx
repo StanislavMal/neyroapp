@@ -1,6 +1,7 @@
 // 📄 src/components/ChatMessage.tsx
 
 import { useState, useEffect, useRef, memo, useMemo } from 'react';
+import { useInView } from 'react-intersection-observer';
 import ReactMarkdown from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
@@ -36,26 +37,40 @@ interface ChatMessageProps {
   onImageClick?: (messageId: string, attachmentIndex: number) => void;
 }
 
-const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, onClick: () => void, className?: string }) => (
-  <div className={`relative w-full h-full ${className}`}>
-    <button 
-      onClick={onClick}
-      className="w-full h-full block rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-500"
-    >
-      <img
-        src={attachment.url}
-        alt="Attachment"
-        className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-105"
-        loading="lazy"
-      />
-    </button>
-    {attachment.isLoading && (
-      <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
-      </div>
-    )}
-  </div>
-);
+const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, onClick: () => void, className?: string }) => {
+  const { ref, inView } = useInView({
+    triggerOnce: true,
+    rootMargin: '200px 0px',
+  });
+
+  return (
+    <div ref={ref} className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
+      {inView ? (
+        <>
+          <button 
+            onClick={onClick}
+            className="w-full h-full block rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-500"
+          >
+            <img
+              src={attachment.url}
+              alt="Attachment"
+              className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-105"
+              loading="lazy"
+            />
+          </button>
+          {attachment.isLoading && (
+            <div className="absolute inset-0 bg-black/50 rounded-lg flex items-center justify-center">
+              <div className="w-8 h-8 border-2 border-white/50 border-t-white rounded-full animate-spin"></div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="w-full h-full" />
+      )}
+    </div>
+  );
+};
+
 
 export const ChatMessage = memo(function ChatMessage({ 
   message,
