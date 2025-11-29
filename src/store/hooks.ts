@@ -164,10 +164,10 @@ export function useConversations() {
       if (error) throw error;
       
       if (data && data.length > 0) {
-        const toUpdate: (Conversation & { deleted_at?: string })[] = [];
+        const toUpdate: Conversation[] = [];
         const toDeleteIds: string[] = [];
 
-        data.forEach((conv: Conversation & { deleted_at?: string }) => {
+        data.forEach((conv: Conversation & { deleted_at?: string | null }) => {
           if (conv.deleted_at) {
             toDeleteIds.push(conv.id);
           } else {
@@ -180,15 +180,10 @@ export function useConversations() {
           actions.mergeConversations(toUpdate);
         }
         if (toDeleteIds.length > 0) {
+          console.log(`[Sync] Найдено ${toDeleteIds.length} диалогов для удаления из кэша.`);
           await dbManager.bulkDelete(STORES.conversations, toDeleteIds);
           toDeleteIds.forEach(id => {
             actions.deleteConversation(id);
-            dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id)
-              .then(messages => {
-                if (messages.length > 0) {
-                  dbManager.bulkDelete(STORES.messages, messages.map(m => m.id));
-                }
-              });
           });
         }
       }
@@ -202,8 +197,11 @@ export function useConversations() {
     if (!user) return;
     const dbManager = getDbManager(user.id);
     const cachedConversations = await dbManager.getAll<Conversation>(STORES.conversations);
-    cachedConversations.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-    actions.setConversations(cachedConversations);
+    
+    const activeCached = cachedConversations.filter(c => !(c as any).deleted_at);
+    
+    activeCached.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    actions.setConversations(activeCached);
   }, [user]);
   
   const loadMessagesForConversation = useCallback(async (conversationId: string) => {
@@ -276,7 +274,7 @@ export function useConversations() {
     try {
       await api.deleteConversation(id);
     } catch (error) {
-      console.error('Failed to run archive_and_purge_conversation on server:', error);
+      console.error('Failed to run deleteConversation on server:', error);
     }
   }, [user]);
   
