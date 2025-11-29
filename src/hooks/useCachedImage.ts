@@ -1,15 +1,16 @@
 // 📄 src/hooks/useCachedImage.ts
 
 import { useState, useEffect } from 'react';
-import { dbManager } from '../services/db-manager';
+import { getDbManager, noOpDbManager } from '../services/db-manager';
 import * as api from '../services/supabase';
 
-export function useCachedImage(path: string | undefined) {
+export function useCachedImage(path: string | undefined, userId: string | null | undefined) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
     let objectUrl: string | null = null;
+    const dbManager = userId ? getDbManager(userId) : noOpDbManager;
 
     async function loadImage() {
       if (!path) {
@@ -40,7 +41,7 @@ export function useCachedImage(path: string | undefined) {
         }
       } catch (error) {
         console.error(`Failed to get signed URL for ${path}`, error);
-        if (isMounted) setImageUrl(null); // Показываем ошибку или плейсхолдер
+        if (isMounted) setImageUrl(null);
       }
     }
 
@@ -52,7 +53,7 @@ export function useCachedImage(path: string | undefined) {
         URL.revokeObjectURL(objectUrl);
       }
     };
-  }, [path]);
+  }, [path, userId]);
 
   return imageUrl;
 }

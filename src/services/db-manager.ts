@@ -2,10 +2,10 @@
 
 import { openDB, type IDBPDatabase } from 'idb';
 
-const DB_NAME = 'AppCacheDB';
+const DB_NAME_PREFIX = 'AppCacheDB';
 const DB_VERSION = 1;
 
-const STORES = {
+export const STORES = {
   conversations: 'conversations',
   messages: 'messages',
   settings: 'settings',
@@ -26,9 +26,12 @@ const MAX_FILE_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 class DBManager {
   private dbPromise: Promise<IDBPDatabase>;
+  private db: IDBPDatabase | null = null;
+  private dbName: string;
 
-  constructor() {
-    this.dbPromise = openDB(DB_NAME, DB_VERSION, {
+  constructor(userId: string) {
+    this.dbName = `${DB_NAME_PREFIX}_${userId}`;
+    this.dbPromise = openDB(this.dbName, DB_VERSION, {
       upgrade(db: IDBPDatabase) {
         if (!db.objectStoreNames.contains(STORES.conversations)) {
           db.createObjectStore(STORES.conversations, { keyPath: 'id' });
@@ -52,16 +55,29 @@ class DBManager {
         }
       },
     });
+    this.dbPromise.then(db => this.db = db);
   }
 
-  async get<T>(storeName: string, key: IDBValidKey): Promise<T | undefined> { return (await this.dbPromise).get(storeName, key); }
-  async getAll<T>(storeName: string): Promise<T[]> { return (await this.dbPromise).getAll(storeName); }
-  async getByIndex<T>(storeName: string, indexName: string, key: IDBValidKey): Promise<T[]> { return (await this.dbPromise).getAllFromIndex(storeName, indexName, key); }
-  async put<T>(storeName: string, value: T): Promise<IDBValidKey> { return (await this.dbPromise).put(storeName, value); }
-  async bulkPut<T>(storeName: string, values: T[]): Promise<void> { if (values.length === 0) return; const db = await this.dbPromise; const tx = db.transaction(storeName, 'readwrite'); await Promise.all(values.map(value => tx.store.put(value))); await tx.done; }
-  async delete(storeName: string, key: IDBValidKey): Promise<void> { return (await this.dbPromise).delete(storeName, key); }
-  async bulkDelete(storeName: string, keys: IDBValidKey[]): Promise<void> { if (keys.length === 0) return; const db = await this.dbPromise; const tx = db.transaction(storeName, 'readwrite'); await Promise.all(keys.map(key => tx.store.delete(key))); await tx.done; }
-  async clear(storeName: string): Promise<void> { return (await this.dbPromise).clear(storeName); }
+  private async getDb(): Promise<IDBPDatabase> {
+    return this.dbPromise;
+  }
+
+  async close(): Promise<void> {
+    if (this.db) {
+      this.db.close();
+      this.db = null;
+      console.log(`[DBManager] Database connection closed for ${this.dbName}`);
+    }
+  }
+
+  async get<T>(storeName: string, key: IDBValidKey): Promise<T | undefined> { return (await this.getDb()).get(storeName, key); }
+  async getAll<T>(storeName: string): Promise<T[]> { return (await this.getDb()).getAll(storeName); }
+  async getByIndex<T>(storeName: string, indexName: string, key: IDBValidKey): Promise<T[]> { return (await this.getDb()).getAllFromIndex(storeName, indexName, key); }
+  async put<T>(storeName: string, value: T): Promise<IDBValidKey> { return (await this.getDb()).put(storeName, value); }
+  async bulkPut<T>(storeName: string, values: T[]): Promise<void> { if (values.length === 0) return; const db = await this.getDb(); const tx = db.transaction(storeName, 'readwrite'); await Promise.all(values.map(value => tx.store.put(value))); await tx.done; }
+  async delete(storeName: string, key: IDBValidKey): Promise<void> { return (await this.getDb()).delete(storeName, key); }
+  async bulkDelete(storeName: string, keys: IDBValidKey[]): Promise<void> { if (keys.length === 0) return; const db = await this.getDb(); const tx = db.transaction(storeName, 'readwrite'); await Promise.all(keys.map(key => tx.store.delete(key))); await tx.done; }
+  async clear(storeName: string): Promise<void> { return (await this.getDb()).clear(storeName); }
   async getLastSyncTimestamp(key: string): Promise<string | null> { const result = await this.get<{ key: string; value: string }>(STORES.keyValue, key); return result?.value || null; }
   async setLastSyncTimestamp(key: string, timestamp: string): Promise<void> { await this.put(STORES.keyValue, { key, value: timestamp }); }
 
@@ -109,7 +125,7 @@ class DBManager {
   }
 
   private async cleanupImageCache(): Promise<void> {
-    const db = await this.dbPromise;
+    const db = await this.getDb();
     let allMetadata = await this.getAll<ImageMetadata>(STORES.imageMeta);
     const now = Date.now();
     let totalSize = allMetadata.reduce((sum, meta) => sum + meta.size, 0);
@@ -155,10 +171,31 @@ class NoOpDBManager {
   async cacheImage(): Promise<Blob | null> { return null; }
   async getCacheStats(): Promise<{ size: number; count: number }> { return { size: 0, count: 0 }; }
   async clearImageCache(): Promise<void> {}
+  async close(): Promise<void> {}
 }
 
-const dbManager = import.meta.env.SSR
-  ? new NoOpDBManager()
-  : new DBManager();
+const dbManagerInstanceCache = new Map<string, DBManager>();
 
-export { dbManager, STORES };
+function getDbManager(userId: string): DBManager {
+  if (import.meta.env.SSR) {
+    // @ts-ignore
+    return new NoOpDBManager();
+  }
+  if (!dbManagerInstanceCache.has(userId)) {
+    console.log(`[DBManager] Creating new DB manager for user ${userId}`);
+    dbManagerInstanceCache.set(userId, new DBManager(userId));
+  }
+  return dbManagerInstanceCache.get(userId)!;
+}
+
+async function closeDbManager(userId: string): Promise<void> {
+  if (dbManagerInstanceCache.has(userId)) {
+    const manager = dbManagerInstanceCache.get(userId)!;
+    await manager.close();
+    dbManagerInstanceCache.delete(userId);
+  }
+}
+
+const noOpDbManager = new NoOpDBManager();
+
+export { getDbManager, closeDbManager, noOpDbManager };

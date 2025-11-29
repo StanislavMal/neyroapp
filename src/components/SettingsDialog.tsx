@@ -4,8 +4,9 @@ import { PlusCircle, Trash2, Edit2, HelpCircle, LogOut } from 'lucide-react'
 import { usePrompts, useSettings } from '../store/hooks'
 import { type UserSettings } from '../store'
 import { useTranslation } from 'react-i18next'
+import { useAuth } from '../providers/AuthProvider'
 import { validatePromptName, validatePromptContent, sanitizeString } from '../utils/validation'
-import { dbManager } from '../services/db-manager';
+import { getDbManager } from '../services/db-manager';
 
 interface SettingsDialogProps {
   isOpen: boolean
@@ -47,6 +48,7 @@ function InfoTooltip({ text }: { text: string }) {
 }
 
 export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProps) {
+  const { user } = useAuth();
   const { t, i18n } = useTranslation(); 
   const [promptForm, setPromptForm] = useState({ name: '', content: '' })
   const [isAddingPrompt, setIsAddingPrompt] = useState(false)
@@ -62,12 +64,13 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
   const [cacheStats, setCacheStats] = useState({ size: 0, count: 0 });
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && user) {
+      const dbManager = getDbManager(user.id);
       loadPrompts();
       loadSettings();
       dbManager.getCacheStats().then(setCacheStats);
     }
-  }, [isOpen, loadPrompts, loadSettings]);
+  }, [isOpen, user, loadPrompts, loadSettings]);
 
   useEffect(() => {
     if (settings) {
@@ -171,6 +174,8 @@ export function SettingsDialog({ isOpen, onClose, onLogout }: SettingsDialogProp
   };
   
   const handleClearCache = async () => {
+    if (!user) return;
+    const dbManager = getDbManager(user.id);
     await dbManager.clearImageCache();
     const stats = await dbManager.getCacheStats();
     setCacheStats(stats);

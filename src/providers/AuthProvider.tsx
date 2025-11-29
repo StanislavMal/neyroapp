@@ -4,26 +4,27 @@ import { createContext, useContext, useEffect, useState, useRef } from 'react'
 import { supabase } from '../utils/supabase'
 import type { Session, User } from '@supabase/supabase-js'
 import { actions } from '../store';
+import { closeDbManager } from '../services/db-manager';
 
 type AuthContextType = {
   user: User | null;
   session: Session | null;
   isInitialized: boolean;
-  isLoading: boolean; // ✅ ДОБАВЛЕНО: isLoading теперь часть контекста
+  isLoading: boolean;
 };
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   session: null,
   isInitialized: false,
-  isLoading: true, // ✅ ДОБАВЛЕНО: Начальное значение
+  isLoading: true,
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
   const [session, setSession] = useState<Session | null>(null)
   const [isInitialized, setIsInitialized] = useState(false)
-  const [isLoading, setIsLoading] = useState(true); // ✅ ДОБАВЛЕНО: Состояние загрузки
+  const [isLoading, setIsLoading] = useState(true);
   const userRef = useRef(user);
   useEffect(() => {
     userRef.current = user;
@@ -32,8 +33,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    const cleanupAndReset = () => {
+    const cleanupAndReset = (userIdToClean?: string) => {
       console.log('[AuthProvider] Cleaning up session and resetting store.');
+      if (userIdToClean) {
+        closeDbManager(userIdToClean);
+      }
       supabase.removeAllChannels(); 
       actions.resetStore();
       setUser(null);
@@ -46,7 +50,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
         setIsInitialized(true);
-        setIsLoading(false); // ✅ ИЗМЕНЕНИЕ: Загрузка завершена
+        setIsLoading(false);
       }
     });
 
@@ -54,12 +58,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       (_event, newSession) => {
         if (!mounted) return;
 
-        setIsLoading(true); // ✅ ИЗМЕНЕНИЕ: Начинаем загрузку при смене состояния
+        setIsLoading(true);
         const newUserId = newSession?.user?.id;
         const currentUserId = userRef.current?.id;
 
         if (currentUserId && currentUserId !== newUserId) {
-          cleanupAndReset();
+          cleanupAndReset(currentUserId);
         }
 
         setSession(newSession);
@@ -68,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!isInitialized) {
           setIsInitialized(true);
         }
-        setIsLoading(false); // ✅ ИЗМЕНЕНИЕ: Загрузка завершена
+        setIsLoading(false);
       }
     );
 
@@ -82,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     user,
     session,
     isInitialized,
-    isLoading, // ✅ ДОБАВЛЕНО: Передаем в контекст
+    isLoading,
   };
 
   return <AuthContext.Provider value={value}>{isInitialized ? children : null}</AuthContext.Provider>;
