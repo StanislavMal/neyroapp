@@ -44,7 +44,12 @@ function Home() {
   const footerRef = useRef<FooterRef>(null);
   const isDesktop = useMediaQuery('(min-width: 768px)');
   
-  const { messages, currentConversationId, loadConversations } = useConversations();
+  const { 
+    messages, 
+    currentConversationId, 
+    loadInitialConversations,
+    syncConversations 
+  } = useConversations();
   const { loadSettings } = useSettings();
   const { loadPrompts } = usePrompts();
   
@@ -72,9 +77,15 @@ function Home() {
     if (appState === 'loading') {
       const loadInitialData = async () => {
         try {
-          console.log('Загрузка начальных данных...');
-          await Promise.all([loadSettings(), loadPrompts(), loadConversations()]);
+          console.log('Загрузка начальных данных из кэша...');
+          await Promise.all([
+            loadSettings(),
+            loadPrompts(),
+            loadInitialConversations()
+          ]);
           setAppState('ready');
+          console.log('Кэш загружен. Запуск фоновой синхронизации...');
+          syncConversations(); 
         } catch (error) {
           console.error("Ошибка при загрузке начальных данных:", error);
           setLoadError('Не удалось загрузить ваши данные. Пожалуйста, обновите страницу.');
@@ -83,12 +94,12 @@ function Home() {
       };
       loadInitialData();
     }
-  }, [user, isInitialized, appState, navigate, loadConversations, loadPrompts, loadSettings]);
+  }, [user, isInitialized, appState, navigate, loadInitialConversations, syncConversations, loadPrompts, loadSettings]);
 
-  useSupabaseSubscriptions({ user, loadConversations, loadPrompts });
+  useSupabaseSubscriptions({ user, loadConversations: syncConversations, loadPrompts });
 
   const allImages = useMemo(() => 
-    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image').map(att => ({ 
+    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image' && att.url).map(att => ({ 
       src: att.url,
       download: true 
     })) ?? [])
@@ -217,13 +228,15 @@ function Home() {
     return (
       <>
         {isDesktop ? <DesktopLayout {...layoutProps} /> : <MobileLayout {...layoutProps} />}
-        <Lightbox
-          open={lightboxOpen}
-          close={() => setLightboxOpen(false)}
-          slides={allImages}
-          index={lightboxIndex}
-          plugins={[Download]}
-        />
+        {allImages.length > 0 && (
+          <Lightbox
+            open={lightboxOpen}
+            close={() => setLightboxOpen(false)}
+            slides={allImages}
+            index={lightboxIndex}
+            plugins={[Download]}
+          />
+        )}
       </>
     );
   }

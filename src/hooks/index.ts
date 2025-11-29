@@ -6,3 +6,4 @@ export { useSidebar } from './useSidebar';
 export { useScrollManagement } from './useScrollManagement';
 export { useCopyToClipboard } from './useCopyToClipboard';
 export { useSupabaseSubscriptions } from './useSupabaseSubscriptions';
+export { useCachedImage } from './useCachedImage';

@@ -3,7 +3,7 @@
 import { supabase } from '../utils/supabase';
 import { retryAsync } from '../utils/retry';
 import type { UserSettings } from '../store';
-import type { Message } from '../lib/ai/types';
+import type { Message, Attachment } from '../lib/ai/types';
 
 /**
  * =================================================================
@@ -79,11 +79,24 @@ export function updateConversationTitle(id: string, title: string) {
   );
 }
 
-export function deleteConversation(id: string) {
-  return retryAsync(() => 
-    supabase.from('conversations').delete().eq('id', id)
+export async function deleteConversation(id: string) {
+  const { data: attachmentData, error: rpcError } = await retryAsync(() =>
+    supabase.rpc('archive_and_purge_conversation', { conv_id: id })
   );
+
+  if (rpcError) {
+    console.error("Ошибка при архивации беседы:", rpcError);
+    throw rpcError;
+  }
+
+  if (attachmentData && attachmentData.length > 0) {
+    const pathsToDelete = attachmentData.map((item: any) => item.deleted_attachment_path);
+    if (pathsToDelete.length > 0) {
+      await deleteAttachments(pathsToDelete);
+    }
+  }
 }
+
 
 // --- Messages ---
 export function fetchMessages(conversationId: string) {
@@ -117,27 +130,22 @@ export function deleteMessages(ids: string[]) {
   );
 }
 
-export function duplicateMessages(newConversationId: string, messagesToCopy: any[]) {
-  const newMessages = messagesToCopy.map((msg: any) => {
-    const { id, ...restOfMsg } = msg;
-    return {
-      ...restOfMsg,
-      conversation_id: newConversationId,
-    };
-  });
+type NewMessagePayload = {
+  conversation_id: string;
+  user_id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  attachments?: Attachment[];
+  created_at: string;
+};
+
+export function bulkInsertMessages(messages: NewMessagePayload[]) {
   return retryAsync(() => 
-    supabase.from('messages').insert(newMessages)
+    supabase.from('messages').insert(messages)
   );
 }
 
 // --- Attachments (Storage) ---
-
-/**
- * Загружает файл в Supabase Storage.
- * @param userId ID пользователя, для создания пути
- * @param file Файл для загрузки
- * @returns Путь к файлу в Storage
- */
 export async function uploadAttachment(userId: string, file: File): Promise<string> {
   if (!file.name) {
     throw new Error('File has no name.');
@@ -161,16 +169,11 @@ export async function uploadAttachment(userId: string, file: File): Promise<stri
   return filePath;
 }
 
-/**
- * Создает подписанные (временные) URL для массива путей к файлам.
- * @param paths Массив путей к файлам в Storage
- * @returns Массив объектов с путем и подписанным URL
- */
 export async function createSignedUrls(paths: string[]): Promise<{ path: string; signedUrl: string }[]> {
   const { data, error } = await retryAsync(() => 
     supabase.storage
       .from('message_attachments')
-      .createSignedUrls(paths, 3600) // URL действителен 1 час
+      .createSignedUrls(paths, 3600)
   );
 
   if (error) {
@@ -184,10 +187,6 @@ export async function createSignedUrls(paths: string[]): Promise<{ path: string;
   })).filter((item): item is { path: string; signedUrl: string } => !!item.signedUrl);
 }
 
-/**
- * Удаляет файлы из Supabase Storage.
- * @param paths Массив путей к файлам для удаления
- */
 export async function deleteAttachments(paths: string[]) {
   if (paths.length === 0) {
     return { data: [], error: null };
@@ -206,4 +205,26 @@ export async function deleteAttachments(paths: string[]) {
   }
 
   return { data, error };
+}
+
+
+// --- Функции для синхронизации ---
+export function fetchUpdatedConversations(userId: string, since: string) {
+  return retryAsync(() =>
+    supabase.from('conversations')
+      .select('*')
+      .eq('user_id', userId)
+      .gt('updated_at', since)
+      .order('created_at', { ascending: false })
+  );
+}
+
+export function fetchUpdatedMessages(conversationId: string, since: string) {
+  return retryAsync(() =>
+    supabase.from('messages')
+      .select('*')
+      .eq('conversation_id', conversationId)
+      .gt('updated_at', since)
+      .order('created_at', { ascending: true })
+  );
 }

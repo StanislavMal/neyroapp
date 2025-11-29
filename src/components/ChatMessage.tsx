@@ -17,7 +17,7 @@ import { CodeBlock } from './CodeBlock';
 import { TableBlock } from './TableBlock';
 import { InlineCode } from './InlineCode';
 import { TypingDots } from './TypingDots';
-import { useCopyToClipboard } from '../hooks';
+import { useCopyToClipboard, useCachedImage } from '../hooks';
 import { 
   htmlToPlainText, 
   extractLatexFromKatex, 
@@ -42,17 +42,19 @@ const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, o
     triggerOnce: true,
     rootMargin: '200px 0px',
   });
+  
+  const displayUrl = useCachedImage(attachment.path);
 
   return (
     <div ref={ref} className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
-      {inView ? (
+      {inView && displayUrl ? (
         <>
           <button 
             onClick={onClick}
             className="w-full h-full block rounded-lg overflow-hidden focus:outline-none focus:ring-2 focus:ring-orange-500"
           >
             <img
-              src={attachment.url}
+              src={displayUrl}
               alt="Attachment"
               className="w-full h-full object-cover cursor-pointer transition-transform hover:scale-105"
               loading="lazy"
@@ -65,7 +67,11 @@ const ImageTile = ({ attachment, onClick, className = '' }: { attachment: any, o
           )}
         </>
       ) : (
-        <div className="w-full h-full" />
+        <div className="w-full h-full flex items-center justify-center">
+          {inView && (
+            <div className="w-6 h-6 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+          )}
+        </div>
       )}
     </div>
   );
