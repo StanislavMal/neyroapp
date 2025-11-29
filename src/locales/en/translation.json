@@ -51,5 +51,8 @@
   "precise": "Precise",
   "creative": "Creative",
   "sendMessage": "Send message",
-  "visionNotSupported": "The selected model does not support images"  
+  "visionNotSupported": "The selected model does not support images",
+  "imageCache": "Image Cache",
+  "imageCacheNote": "Stores images locally for faster loading, avoiding repeated downloads.",
+  "clearImageCache": "Clear image cache"
 }
