@@ -7,6 +7,8 @@ import type { Message } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { dbManager, STORES } from '../services/db-manager';
+
+// --- Хук для настроек ---
 export function useSettings() {
     const { user } = useAuth();
     const settings = useStore(store, s => selectors.getSettings(s));
@@ -73,6 +75,8 @@ export function useSettings() {
     return { settings, loadSettings, updateSettings };
 }
 
+
+// --- Хук для промптов ---
 export function usePrompts() {
     const { user } = useAuth();
     const prompts = useStore(store, s => selectors.getPrompts(s));
@@ -156,8 +160,33 @@ export function useConversations() {
       if (error) throw error;
       
       if (data && data.length > 0) {
-        await dbManager.bulkPut(STORES.conversations, data);
-        actions.mergeConversations(data as Conversation[]);
+        const toUpdate: (Conversation & { deleted_at?: string })[] = [];
+        const toDeleteIds: string[] = [];
+
+        data.forEach((conv: Conversation & { deleted_at?: string }) => {
+          if (conv.deleted_at) {
+            toDeleteIds.push(conv.id);
+          } else {
+            toUpdate.push(conv);
+          }
+        });
+
+        if (toUpdate.length > 0) {
+          await dbManager.bulkPut(STORES.conversations, toUpdate);
+          actions.mergeConversations(toUpdate);
+        }
+        if (toDeleteIds.length > 0) {
+          await dbManager.bulkDelete(STORES.conversations, toDeleteIds);
+          toDeleteIds.forEach(id => {
+            actions.deleteConversation(id);
+            dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id)
+              .then(messages => {
+                if (messages.length > 0) {
+                  dbManager.bulkDelete(STORES.messages, messages.map(m => m.id));
+                }
+              });
+          });
+        }
       }
       await dbManager.setLastSyncTimestamp('conversations_sync', new Date().toISOString());
     } catch (error) {
@@ -173,8 +202,9 @@ export function useConversations() {
   
   const loadMessagesForConversation = useCallback(async (conversationId: string) => {
     const cachedMessages = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', conversationId);
-
+    
     cachedMessages.sort((a, b) => {
+      // @ts-ignore
       const dateA = new Date(a.created_at || 0).getTime();
       // @ts-ignore
       const dateB = new Date(b.created_at || 0).getTime();
@@ -233,21 +263,19 @@ export function useConversations() {
   }, [user]);
 
   const deleteConversation = useCallback(async (id: string) => {
-    const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
-    const messageIds = messagesInConv.map(m => m.id);
-    const attachmentPaths = messagesInConv.flatMap(m => m.attachments || []).map(att => att.path).filter(Boolean);
-
     actions.deleteConversation(id);
     await dbManager.delete(STORES.conversations, id);
-    await dbManager.bulkDelete(STORES.messages, messageIds);
+
+    const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+    if (messagesInConv.length > 0) {
+      await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
+    }
 
     try {
       await api.deleteConversation(id);
-      if (attachmentPaths.length > 0) {
-        await api.deleteAttachments(attachmentPaths);
-      }
     } catch (error) {
-      console.error('Failed to delete conversation from server:', error);
+      console.error('Failed to run archive_and_purge_conversation on server:', error);
+      // Здесь можно добавить логику отката/повторной попытки.
     }
   }, []);
   
