@@ -1,28 +1,35 @@
 // 📄 src/components/ChatInput.tsx
 
-import { forwardRef, type Ref, useState, useRef, useEffect, useCallback } from 'react';
+import { forwardRef, type Ref, useRef, useEffect } from 'react';
 import { Send, Paperclip, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { useSettings } from '../store/hooks';
 import { MODELS } from './ModelSelector';
-import { compressImage } from '../utils/image-compression';
 
-interface ChatInputProps {
-  input: string;
-  setInput: (value: string) => void;
-  handleSubmit: (e: React.FormEvent, attachments?: FileWithThumbnail[] | null) => void;
-  isLoading: boolean;
-  onFocus?: () => void;
-  onBlur?: () => void;
-}
 export interface FileWithThumbnail {
   originalFile: File;
   thumbnailUrl: string;
 }
 
+interface ChatInputProps {
+  input: string;
+  setInput: (value: string) => void;
+  attachments: FileWithThumbnail[];
+  onFileChange: (files: FileList | null) => void;
+  onRemoveAttachment: (index: number) => void;
+  onClearAttachments: () => void;
+  handleSubmit: (e: React.FormEvent) => void;
+  isLoading: boolean;
+  onFocus?: () => void;
+  onBlur?: () => void;
+}
+
 export const ChatInput = forwardRef((
-  { input, setInput, handleSubmit, isLoading, onFocus, onBlur }: ChatInputProps,
+  { 
+    input, setInput, attachments, onFileChange, onRemoveAttachment, 
+    onClearAttachments, handleSubmit, isLoading, onFocus, onBlur 
+  }: ChatInputProps,
   ref: Ref<HTMLTextAreaElement>
 ) => {
   const { t } = useTranslation();
@@ -32,89 +39,31 @@ export const ChatInput = forwardRef((
   const currentModel = MODELS.find(m => m.id === settings?.model);
   const supportsVision = currentModel?.supportsVision ?? false;
 
-  const [attachments, setAttachments] = useState<FileWithThumbnail[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const currentBlobUrls = useRef<string[]>([]);
-
-  const removeAttachment = useCallback((indexToRemove: number) => {
-    const urlToRemove = attachments[indexToRemove]?.thumbnailUrl;
-    if (urlToRemove) {
-      URL.revokeObjectURL(urlToRemove);
-      const urlIndexInRef = currentBlobUrls.current.indexOf(urlToRemove);
-      if (urlIndexInRef > -1) {
-        currentBlobUrls.current.splice(urlIndexInRef, 1);
-      }
-    }
-    setAttachments(prev => prev.filter((_, index) => index !== indexToRemove));
-  }, [attachments]);
-
-  const clearAllAttachments = useCallback(() => {
-    currentBlobUrls.current.forEach(url => URL.revokeObjectURL(url));
-    currentBlobUrls.current = [];
-    setAttachments([]);
-  }, []);
 
   useEffect(() => {
     if (!supportsVision && attachments.length > 0) {
-      clearAllAttachments();
+      onClearAttachments();
     }
-  }, [supportsVision, attachments, clearAllAttachments]);
+  }, [supportsVision, attachments, onClearAttachments]);
 
-  useEffect(() => {
-    const blobUrls = currentBlobUrls.current;
-    return () => {
-      blobUrls.forEach(url => URL.revokeObjectURL(url));
-    };
-  }, []);
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'));
-    if (imageFiles.length === 0) return;
-
-    const newAttachments: FileWithThumbnail[] = [];
-
-    for (const file of imageFiles) {
-      try {
-        const thumbnail = await compressImage(file, {
-          maxSizeMB: 0.2,
-          maxWidthOrHeight: 400, // 400px
-          initialQuality: 0.6,
-        });
-        const thumbnailUrl = URL.createObjectURL(thumbnail);
-        currentBlobUrls.current.push(thumbnailUrl);
-        newAttachments.push({ originalFile: file, thumbnailUrl });
-      } catch (error) {
-        console.error("Failed to create thumbnail for", file.name, error);
-      }
-    }
-    
-    setAttachments(prev => [...prev, ...newAttachments]);
-
+  const handleLocalFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    onFileChange(e.target.files);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
 
-  const handleFormSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() && attachments.length === 0) return;
-    
-    handleSubmit(e, attachments);
-  };
-
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (isDesktop && e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleFormSubmit(e as any);
+      handleSubmit(e as any);
     }
   };
 
   return (
     <div className="bg-gray-900/80 backdrop-blur-sm border-t border-orange-500/10 p-4">
-      <form onSubmit={handleFormSubmit}>
+      <form onSubmit={handleSubmit}>
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {attachments.map((att, index) => (
@@ -122,7 +71,7 @@ export const ChatInput = forwardRef((
                 <img src={att.thumbnailUrl} alt={`Preview ${index + 1}`} className="w-20 h-20 object-cover rounded-lg" />
                 <button
                   type="button"
-                  onClick={() => removeAttachment(index)}
+                  onClick={() => onRemoveAttachment(index)}
                   className="absolute -top-2 -right-2 p-1 bg-gray-700 rounded-full text-white hover:bg-red-500"
                   aria-label="Remove attachment"
                 >
@@ -152,7 +101,7 @@ export const ChatInput = forwardRef((
           <input
             type="file"
             ref={fileInputRef}
-            onChange={handleFileChange}
+            onChange={handleLocalFileChange}
             accept="image/*"
             className="hidden"
             multiple

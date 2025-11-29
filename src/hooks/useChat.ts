@@ -62,6 +62,7 @@ export function useChat(options: UseChatOptions = {}) {
   const supportsVision = currentModel?.supportsVision ?? false;
 
   const base64Cache = useRef(new Map<string, { mimeType: string; data: string }>());
+  const tempBlobUrlsRef = useRef<string[]>([]);
 
   const textQueueRef = useRef<string>('');
   const displayedTextRef = useRef<string>('');
@@ -75,8 +76,10 @@ export function useChat(options: UseChatOptions = {}) {
   }, [currentConversationId]);
 
   useEffect(() => {
+    const urlsToClean = tempBlobUrlsRef.current;
     return () => {
       if (intervalIdRef.current) clearInterval(intervalIdRef.current);
+      urlsToClean.forEach(url => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -247,7 +250,8 @@ export function useChat(options: UseChatOptions = {}) {
     }
     return historyForAI;
   };
-const sendMessage = useCallback(
+
+  const sendMessage = useCallback(
     async (content: string, attachmentsWithThumbnails?: FileWithThumbnail[] | null) => {
       const hasContent = content.trim();
       const hasAttachments = attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0;
@@ -276,12 +280,19 @@ const sendMessage = useCallback(
         const tempMessageId = crypto.randomUUID();
         let tempAttachments: Attachment[] = [];
         if (attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0) {
-          tempAttachments = attachmentsWithThumbnails.map(att => ({
-            type: 'image',
-            url: att.thumbnailUrl,
-            path: '',
-            isLoading: true,
-          }));
+          tempBlobUrlsRef.current.forEach(URL.revokeObjectURL);
+          tempBlobUrlsRef.current = [];
+
+          tempAttachments = attachmentsWithThumbnails.map(att => {
+            const tempUrl = URL.createObjectURL(att.originalFile);
+            tempBlobUrlsRef.current.push(tempUrl);
+            return {
+              type: 'image',
+              url: tempUrl,
+              path: '',
+              isLoading: true,
+            };
+          });
         }
 
         const userMessage: Message = { 
@@ -313,6 +324,10 @@ const sendMessage = useCallback(
               }));
 
               await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+
+              tempBlobUrlsRef.current.forEach(URL.revokeObjectURL);
+              tempBlobUrlsRef.current = [];
+
             } else {
               throw new Error("Не удалось получить URL для загруженных файлов.");
             }
@@ -331,10 +346,9 @@ const sendMessage = useCallback(
           options.onResponseComplete?.(aiResponse);
         }
       } catch (error) {
-        console.error("Error in sendMessage:", error); // Полезно для отладки
+        console.error("Error in sendMessage:", error);
         const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
         setError(errorMsg);
-        options.onError?.(errorMsg);
         setPendingMessage(null);
       } finally {
         setIsLoading(false);
