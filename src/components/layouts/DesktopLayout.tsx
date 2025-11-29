@@ -10,6 +10,7 @@ import {
   Footer,
 } from '..';
 import type { FooterRef } from '../Footer';
+import type { FileWithThumbnail } from '../ChatInput';
 import type { RefObject } from 'react';
 
 // Определяем пропсы для компонента лэйаута
@@ -23,7 +24,7 @@ interface DesktopLayoutProps {
   isSettingsOpen: boolean;
   setIsSettingsOpen: (isOpen: boolean) => void;
   setIsModelSelectorOpen: (isOpen: boolean) => void;
-  handleSend: (message: string, attachments?: File[] | null, blobUrls?: string[]) => Promise<void>;
+  handleSend: (message: string, attachments?: FileWithThumbnail[]) => Promise<void>;
   handleLogout: () => Promise<void>;
   scrollToBottom: () => void;
 }
