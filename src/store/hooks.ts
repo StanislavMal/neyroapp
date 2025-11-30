@@ -287,7 +287,6 @@ export function useConversations() {
     const dbManager = getDbManager(user.id);
 
     try {
-        // ✅ ТРЁХУРОВНЕВЫЙ ПОИСК СООБЩЕНИЙ
         let messagesInConv: Message[] = store.state.messageCache[id] || [];
 
         if (messagesInConv.length === 0) {
@@ -333,13 +332,14 @@ export function useConversations() {
     actions.addMessageToCache(conversationId, fullMessage);
     await dbManager.put(STORES.messages, fullMessage);
 
-    try {
-      const { error } = await api.createMessage(user.id, conversationId, message);
-      if (error) throw error;
-      await syncConversations();
-    } catch (error) {
-      console.error('Failed to save message to server:', error);
-    }
+    api.createMessage(user.id, conversationId, message)
+      .then(({ error }) => {
+        if (error) throw error;
+        return syncConversations();
+      })
+      .catch(error => {
+        console.error('Failed to save message to server:', error);
+      });
   }, [user, syncConversations]);
 
   const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedFields: Partial<Message>) => {

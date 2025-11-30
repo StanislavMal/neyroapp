@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
 import type { Message, Attachment, MessageContent } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
-import { selectors, store, actions } from '../store/store';
+import { selectors, store } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
@@ -303,7 +303,7 @@ export function useChat(options: UseChatOptions = {}) {
           attachments: tempAttachments,
         };
         
-        actions.addMessageToCache(convId, userMessage);
+        await addMessage(convId, userMessage);
 
         const uploadTask = async (): Promise<Attachment[]> => {
           if (!hasAttachments) return [];
@@ -337,7 +337,6 @@ export function useChat(options: UseChatOptions = {}) {
         const [finalAttachments, aiResponse] = await Promise.all([uploadTask(), aiTask()]);
 
         await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
-        await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
