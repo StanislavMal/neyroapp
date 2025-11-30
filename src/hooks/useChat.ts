@@ -4,12 +4,25 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { streamChat } from '../lib/ai/server';
 import type { Message, Attachment, MessageContent } from '../lib/ai/types';
 import { useConversations, useSettings, usePrompts } from '../store/hooks';
-import { selectors, store, actions } from '../store/store';
+import { selectors, store } from '../store/store';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
 import { MODELS } from '../components/ModelSelector';
-import type { FileWithThumbnail } from '../components/ChatInput';
+
+const fileToBase64 = (file: File): Promise<{ mimeType: string; data: string }> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.readAsDataURL(file);
+    reader.onload = () => {
+      const result = reader.result as string;
+      const [header, data] = result.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] || file.type;
+      resolve({ mimeType, data });
+    };
+    reader.onerror = (error) => reject(error);
+  });
+};
 
 const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
   if (url.startsWith('data:')) {
@@ -62,7 +75,6 @@ export function useChat(options: UseChatOptions = {}) {
   const supportsVision = currentModel?.supportsVision ?? false;
 
   const base64Cache = useRef(new Map<string, { mimeType: string; data: string }>());
-  const tempBlobUrlsRef = useRef<string[]>([]);
 
   const textQueueRef = useRef<string>('');
   const displayedTextRef = useRef<string>('');
@@ -76,10 +88,8 @@ export function useChat(options: UseChatOptions = {}) {
   }, [currentConversationId]);
 
   useEffect(() => {
-    const urlsToClean = tempBlobUrlsRef.current;
     return () => {
       if (intervalIdRef.current) clearInterval(intervalIdRef.current);
-      urlsToClean.forEach(url => URL.revokeObjectURL(url));
     };
   }, []);
 
@@ -252,9 +262,9 @@ export function useChat(options: UseChatOptions = {}) {
   };
 
   const sendMessage = useCallback(
-    async (content: string, attachmentsWithThumbnails?: FileWithThumbnail[] | null) => {
+    async (content: string, files?: File[] | null) => {
       const hasContent = content.trim();
-      const hasAttachments = attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0;
+      const hasAttachments = files && files.length > 0;
 
       if ((!hasContent && !hasAttachments) || isLoading || !user) {
         return;
@@ -270,6 +280,8 @@ export function useChat(options: UseChatOptions = {}) {
       setPendingMessage(null);
       
       let convId = currentConversationId;
+      const tempBlobUrls: string[] = [];
+
       try {
         if (!convId) {
           const title = content.slice(0, 30) || "Image Message";
@@ -278,22 +290,16 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         const tempMessageId = crypto.randomUUID();
-        let tempAttachments: Attachment[] = [];
-        if (attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0) {
-          tempBlobUrlsRef.current.forEach(URL.revokeObjectURL);
-          tempBlobUrlsRef.current = [];
-
-          tempAttachments = attachmentsWithThumbnails.map(att => {
-            const tempUrl = URL.createObjectURL(att.originalFile);
-            tempBlobUrlsRef.current.push(tempUrl);
+        const tempAttachments: Attachment[] = hasAttachments ? files.map(file => {
+            const blobUrl = URL.createObjectURL(file);
+            tempBlobUrls.push(blobUrl);
             return {
-              type: 'image',
-              url: tempUrl,
-              path: '',
-              isLoading: true,
+                type: 'image',
+                url: blobUrl,
+                path: '',
+                isLoading: true,
             };
-          });
-        }
+        }) : [];
 
         const userMessage: Message = { 
           id: tempMessageId, 
@@ -301,60 +307,59 @@ export function useChat(options: UseChatOptions = {}) {
           content: content.trim(),
           attachments: tempAttachments,
         };
-        actions.addMessageToCache(convId, userMessage);
+        
+        await addMessage(convId, userMessage);
 
-        let finalAttachments: Attachment[] = [];
-        if (attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0) {
-          const originalFiles = attachmentsWithThumbnails.map(att => att.originalFile);
-          const uploadPromises = originalFiles.map(async (file) => {
-            const fileToUpload = await compressImage(file);
-            return api.uploadAttachment(user.id, fileToUpload);
-          });
-
+        const uploadTask = async (): Promise<Attachment[]> => {
+          if (!hasAttachments) return [];
+          const uploadPromises = files.map(file => 
+            compressImage(file).then(compressed => api.uploadAttachment(user.id, compressed))
+          );
           const filePaths = await Promise.all(uploadPromises);
-          if (filePaths.length > 0) {
-            const signedUrls = await api.createSignedUrls(filePaths);
+          const signedUrls = await api.createSignedUrls(filePaths);
+          if (signedUrls.length > 0) {
+            return signedUrls.map(item => ({ type: 'image', path: item.path, url: item.signedUrl, isLoading: false }));
+          }
+          throw new Error("Не удалось получить URL для загруженных файлов.");
+        };
 
-            if (signedUrls.length > 0) {
-              finalAttachments = signedUrls.map(item => ({
-                type: 'image',
-                path: item.path,
-                url: item.signedUrl,
-                isLoading: false,
-              }));
-
-              await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
-
-              tempBlobUrlsRef.current.forEach(URL.revokeObjectURL);
-              tempBlobUrlsRef.current = [];
-
-            } else {
-              throw new Error("Не удалось получить URL для загруженных файлов.");
+        const aiTask = async () => {
+          const previousMessages = selectors.getCurrentMessages(store.state).filter(m => m.id !== tempMessageId);
+          const historyForAI = await prepareHistoryForAI(previousMessages, supportsVision);
+          const userMessageContentForAI: MessageContent = [];
+          if (hasContent) userMessageContentForAI.push({ type: 'text', text: content.trim() });
+          if (hasAttachments) {
+            for (const file of files) {
+              const { mimeType, data } = await fileToBase64(file);
+              userMessageContentForAI.push({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } });
             }
           }
-        }
-
-        await api.createMessage(user.id, convId, { ...userMessage, attachments: finalAttachments });
+          historyForAI.push({ role: 'user', content: userMessageContentForAI });
+          return processAIResponse(historyForAI);
+        };
         
-        const currentMessages = selectors.getCurrentMessages(store.state);
-        const messageHistoryForAI = await prepareHistoryForAI(currentMessages, supportsVision);
-        const aiResponse = await processAIResponse(messageHistoryForAI);
+        const [finalAttachments, aiResponse] = await Promise.all([uploadTask(), aiTask()]);
+
+        await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
           await addMessage(convId, aiResponse);
           options.onResponseComplete?.(aiResponse);
         }
+
       } catch (error) {
         console.error("Error in sendMessage:", error);
         const errorMsg = error instanceof Error ? error.message : 'An unexpected error occurred';
         setError(errorMsg);
-        setPendingMessage(null);
       } finally {
-        setIsLoading(false);
+        if (!pendingMessage) {
+            setIsLoading(false);
+        }
+        tempBlobUrls.forEach(url => URL.revokeObjectURL(url));
       }
     },
-    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision]
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision, pendingMessage]
   );
   
   const editAndRegenerate = useCallback(

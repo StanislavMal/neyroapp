@@ -180,11 +180,33 @@ export function useConversations() {
           actions.mergeConversations(toUpdate);
         }
         if (toDeleteIds.length > 0) {
-          console.log(`[Sync] Найдено ${toDeleteIds.length} диалогов для удаления из кэша.`);
-          await dbManager.bulkDelete(STORES.conversations, toDeleteIds);
-          toDeleteIds.forEach(id => {
-            actions.deleteConversation(id);
-          });
+          for (const id of toDeleteIds) {
+            try {
+              let messagesInConv: Message[] = store.state.messageCache[id] || [];
+              
+              if (messagesInConv.length === 0) {
+                messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+              }
+              
+              if (messagesInConv.length === 0) {
+                const { data: serverMessages, error: fetchError } = await api.fetchMessages(id);
+                if (fetchError) throw fetchError;
+                messagesInConv = serverMessages as Message[];
+              }
+
+              if (messagesInConv.length > 0) {
+                const attachmentPaths = messagesInConv.flatMap(m => m.attachments?.map(a => a.path) ?? []).filter(Boolean);
+                if (attachmentPaths.length > 0) {
+                  await dbManager.bulkDeleteImages(attachmentPaths);
+                }
+                await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
+              }
+              await dbManager.delete(STORES.conversations, id);
+              actions.deleteConversation(id);
+            } catch (e) {
+              console.error(`[Sync] Ошибка при обработке удаления диалога ${id}:`, e);
+            }
+          }
         }
       }
       await dbManager.setLastSyncTimestamp('conversations_sync', new Date().toISOString());
@@ -263,18 +285,40 @@ export function useConversations() {
   const deleteConversation = useCallback(async (id: string) => {
     if (!user) return;
     const dbManager = getDbManager(user.id);
-    actions.deleteConversation(id);
-    await dbManager.delete(STORES.conversations, id);
-    
-    const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
-    if (messagesInConv.length > 0) {
-      await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
-    }
 
     try {
-      await api.deleteConversation(id);
+        let messagesInConv: Message[] = store.state.messageCache[id] || [];
+
+        if (messagesInConv.length === 0) {
+          messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+        }
+
+        if (messagesInConv.length === 0) {
+          const { data: serverMessages, error: fetchError } = await api.fetchMessages(id);
+          if (fetchError) {
+            console.warn(`[Delete] Не удалось получить сообщения для ${id} с сервера. Кэш изображений может быть не очищен.`, fetchError);
+          } else if (serverMessages) {
+            messagesInConv = serverMessages as Message[];
+          }
+        }
+
+        if (messagesInConv.length > 0) {
+            const attachmentPaths = messagesInConv.flatMap(m => m.attachments?.map(a => a.path) ?? []).filter(Boolean);
+            if (attachmentPaths.length > 0) {
+                await dbManager.bulkDeleteImages(attachmentPaths);
+            }
+            await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
+        }
+        
+        actions.deleteConversation(id);
+        await dbManager.delete(STORES.conversations, id);
+
+        api.deleteConversation(id).catch(error => {
+            console.error('[Delete] Фоновое удаление на сервере не удалось:', error);
+        });
+
     } catch (error) {
-      console.error('Failed to run deleteConversation on server:', error);
+        console.error('[Delete] Произошла ошибка при удалении диалога:', error);
     }
   }, [user]);
   
@@ -288,13 +332,14 @@ export function useConversations() {
     actions.addMessageToCache(conversationId, fullMessage);
     await dbManager.put(STORES.messages, fullMessage);
 
-    try {
-      const { error } = await api.createMessage(user.id, conversationId, message);
-      if (error) throw error;
-      await syncConversations();
-    } catch (error) {
-      console.error('Failed to save message to server:', error);
-    }
+    api.createMessage(user.id, conversationId, message)
+      .then(({ error }) => {
+        if (error) throw error;
+        return syncConversations();
+      })
+      .catch(error => {
+        console.error('Failed to save message to server:', error);
+      });
   }, [user, syncConversations]);
 
   const updateMessage = useCallback(async (conversationId: string, messageId: string, updatedFields: Partial<Message>) => {

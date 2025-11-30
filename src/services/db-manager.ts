@@ -82,6 +82,12 @@ class DBManager {
   async setLastSyncTimestamp(key: string, timestamp: string): Promise<void> { await this.put(STORES.keyValue, { key, value: timestamp }); }
 
   // --- Image Cache Methods ---
+
+  async bulkDeleteImages(paths: string[]): Promise<void> {
+    if (paths.length === 0) return;
+    console.log(`[DBManager] Deleting ${paths.length} images from cache.`);
+    return this.bulkDelete(STORES.imageMeta, paths);
+  }
   
   async getCachedImageBlob(path: string): Promise<Blob | null> {
     const metadata = await this.get<ImageMetadata>(STORES.imageMeta, path);
@@ -162,11 +168,12 @@ class NoOpDBManager {
   async getByIndex(): Promise<any[]> { return []; }
   async put(): Promise<IDBValidKey> { return ''; }
   async bulkPut(): Promise<void> {}
-  async delete(): Promise<void> {}
+  async delete(): Promise<IDBValidKey> { return ''; }
   async bulkDelete(): Promise<void> {}
   async clear(): Promise<void> {}
   async getLastSyncTimestamp(): Promise<string | null> { return null; }
   async setLastSyncTimestamp(): Promise<void> {}
+  async bulkDeleteImages(): Promise<void> {}
   async getCachedImageBlob(): Promise<Blob | null> { return null; }
   async cacheImage(): Promise<Blob | null> { return null; }
   async getCacheStats(): Promise<{ size: number; count: number }> { return { size: 0, count: 0 }; }

@@ -17,3 +17,4 @@ export { ModelSelector } from './ModelSelector';
 export { DesktopLayout } from './layouts/DesktopLayout';
 export { MobileLayout } from './layouts/MobileLayout';
 export { TypingDots } from './TypingDots';
+export { LightboxSlide } from './LightboxSlide';
