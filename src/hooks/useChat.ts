@@ -310,11 +310,14 @@ export function useChat(options: UseChatOptions = {}) {
         };
         
         await addMessage(convId, userMessage);
+        const compressedFiles = hasAttachments 
+          ? await Promise.all(files.map(file => compressImage(file)))
+          : [];
 
         const uploadTask = async (): Promise<Attachment[]> => {
           if (!hasAttachments) return [];
-          const uploadPromises = files.map(file => 
-            compressImage(file).then(compressed => api.uploadAttachment(user.id, compressed))
+          const uploadPromises = compressedFiles.map(compressedFile => 
+            api.uploadAttachment(user.id, compressedFile)
           );
           const filePaths = await Promise.all(uploadPromises);
           const signedUrls = await api.createSignedUrls(filePaths);
@@ -330,8 +333,7 @@ export function useChat(options: UseChatOptions = {}) {
           const userMessageContentForAI: MessageContent = [];
           if (hasContent) userMessageContentForAI.push({ type: 'text', text: content.trim() });
           if (hasAttachments) {
-            for (const file of files) {
-              const compressedFile = await compressImage(file);
+            for (const compressedFile of compressedFiles) {
               const { mimeType, data } = await fileToBase64(compressedFile);
               userMessageContentForAI.push({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } });
             }
