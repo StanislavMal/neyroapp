@@ -182,7 +182,18 @@ export function useConversations() {
         if (toDeleteIds.length > 0) {
           for (const id of toDeleteIds) {
             try {
-              const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+              let messagesInConv: Message[] = store.state.messageCache[id] || [];
+              
+              if (messagesInConv.length === 0) {
+                messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+              }
+              
+              if (messagesInConv.length === 0) {
+                const { data: serverMessages, error: fetchError } = await api.fetchMessages(id);
+                if (fetchError) throw fetchError;
+                messagesInConv = serverMessages as Message[];
+              }
+
               if (messagesInConv.length > 0) {
                 const attachmentPaths = messagesInConv.flatMap(m => m.attachments?.map(a => a.path) ?? []).filter(Boolean);
                 if (attachmentPaths.length > 0) {
@@ -276,7 +287,22 @@ export function useConversations() {
     const dbManager = getDbManager(user.id);
 
     try {
-        const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+        // ✅ ТРЁХУРОВНЕВЫЙ ПОИСК СООБЩЕНИЙ
+        let messagesInConv: Message[] = store.state.messageCache[id] || [];
+
+        if (messagesInConv.length === 0) {
+          messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
+        }
+
+        if (messagesInConv.length === 0) {
+          const { data: serverMessages, error: fetchError } = await api.fetchMessages(id);
+          if (fetchError) {
+            console.warn(`[Delete] Не удалось получить сообщения для ${id} с сервера. Кэш изображений может быть не очищен.`, fetchError);
+          } else if (serverMessages) {
+            messagesInConv = serverMessages as Message[];
+          }
+        }
+
         if (messagesInConv.length > 0) {
             const attachmentPaths = messagesInConv.flatMap(m => m.attachments?.map(a => a.path) ?? []).filter(Boolean);
             if (attachmentPaths.length > 0) {
