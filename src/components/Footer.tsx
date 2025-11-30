@@ -5,7 +5,7 @@ import { ChatInput, type FileWithThumbnail } from './ChatInput';
 import { compressImage } from '../utils/image-compression';
 
 interface FooterProps {
-  onSend: (message: string, attachments?: FileWithThumbnail[]) => Promise<void>;
+  onSend: (message: string, attachments?: File[]) => Promise<void>;
   isLoading: boolean;
   onFocus?: () => void;
   onBlur?: () => void;
@@ -27,15 +27,17 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
       currentBlobUrls.current = [];
       setAttachments([]);
     }, []);
+    
+    const resetInputState = useCallback(() => {
+      setInput('');
+      clearAllAttachments();
+      if (textareaRef.current) {
+        textareaRef.current.style.height = 'auto';
+      }
+    }, [clearAllAttachments]);
 
     useImperativeHandle(ref, () => ({
-      resetInput: () => {
-        setInput('');
-        clearAllAttachments();
-        if (textareaRef.current) {
-          textareaRef.current.style.height = 'auto';
-        }
-      }
+      resetInput: resetInputState
     }));
 
     const handleFileChange = async (files: FileList | null) => {
@@ -72,7 +74,10 @@ export const Footer = memo(forwardRef<FooterRef, FooterProps>(
       const messageToSend = input.trim();
       if ((!messageToSend && attachments.length === 0) || isLoading) return;
       
-      onSend(messageToSend, attachments);
+      const filesToSend = attachments.map(att => att.originalFile);
+      onSend(messageToSend, filesToSend);
+      
+      resetInputState();
     };
 
     return (

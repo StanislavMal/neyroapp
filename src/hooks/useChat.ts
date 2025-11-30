@@ -9,7 +9,6 @@ import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
 import { MODELS } from '../components/ModelSelector';
-import type { FileWithThumbnail } from '../components/ChatInput';
 
 const fileToBase64 = (file: File): Promise<{ mimeType: string; data: string }> => {
   return new Promise((resolve, reject) => {
@@ -263,9 +262,9 @@ export function useChat(options: UseChatOptions = {}) {
   };
 
   const sendMessage = useCallback(
-    async (content: string, attachmentsWithThumbnails?: FileWithThumbnail[] | null) => {
+    async (content: string, files?: File[] | null) => {
       const hasContent = content.trim();
-      const hasAttachments = attachmentsWithThumbnails && attachmentsWithThumbnails.length > 0;
+      const hasAttachments = files && files.length > 0;
 
       if ((!hasContent && !hasAttachments) || isLoading || !user) {
         return;
@@ -281,6 +280,8 @@ export function useChat(options: UseChatOptions = {}) {
       setPendingMessage(null);
       
       let convId = currentConversationId;
+      const tempBlobUrls: string[] = [];
+
       try {
         if (!convId) {
           const title = content.slice(0, 30) || "Image Message";
@@ -289,12 +290,16 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         const tempMessageId = crypto.randomUUID();
-        const tempAttachments: Attachment[] = hasAttachments ? attachmentsWithThumbnails.map(att => ({
-            type: 'image',
-            url: att.thumbnailUrl,
-            path: '',
-            isLoading: true,
-        })) : [];
+        const tempAttachments: Attachment[] = hasAttachments ? files.map(file => {
+            const blobUrl = URL.createObjectURL(file);
+            tempBlobUrls.push(blobUrl);
+            return {
+                type: 'image',
+                url: blobUrl,
+                path: '',
+                isLoading: true,
+            };
+        }) : [];
 
         const userMessage: Message = { 
           id: tempMessageId, 
@@ -307,8 +312,7 @@ export function useChat(options: UseChatOptions = {}) {
 
         const uploadTask = async (): Promise<Attachment[]> => {
           if (!hasAttachments) return [];
-          const originalFiles = attachmentsWithThumbnails.map(att => att.originalFile);
-          const uploadPromises = originalFiles.map(file => 
+          const uploadPromises = files.map(file => 
             compressImage(file).then(compressed => api.uploadAttachment(user.id, compressed))
           );
           const filePaths = await Promise.all(uploadPromises);
@@ -325,8 +329,8 @@ export function useChat(options: UseChatOptions = {}) {
           const userMessageContentForAI: MessageContent = [];
           if (hasContent) userMessageContentForAI.push({ type: 'text', text: content.trim() });
           if (hasAttachments) {
-            for (const att of attachmentsWithThumbnails) {
-              const { mimeType, data } = await fileToBase64(att.originalFile);
+            for (const file of files) {
+              const { mimeType, data } = await fileToBase64(file);
               userMessageContentForAI.push({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } });
             }
           }
@@ -352,6 +356,7 @@ export function useChat(options: UseChatOptions = {}) {
         if (!pendingMessage) {
             setIsLoading(false);
         }
+        tempBlobUrls.forEach(url => URL.revokeObjectURL(url));
       }
     },
     [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision, pendingMessage]

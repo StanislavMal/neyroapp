@@ -8,7 +8,6 @@ import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
 import { DesktopLayout, MobileLayout, LightboxSlide } from '../components';
 import type { FooterRef } from '../components/Footer';
-import type { FileWithThumbnail } from '../components/ChatInput';
 import type { CustomSlide } from '../components/LightboxSlide';
 import {
   useChat,
@@ -132,7 +131,7 @@ function Home() {
   }, [messages]);
 
   const handleSend = useCallback(
-    async (message: string, attachments?: FileWithThumbnail[]) => {
+    async (message: string, attachments?: File[]) => {
       const textMessage = message || '';
       const hasAttachments = attachments && attachments.length > 0;
       
@@ -143,8 +142,6 @@ function Home() {
       lockToBottom();
 
       await sendMessage(textMessage, attachments);
-      footerRef.current?.resetInput();
-
     },
     [isLoading, sendMessage, lockToBottom]
   );
