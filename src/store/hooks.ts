@@ -285,8 +285,9 @@ export function useConversations() {
             await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
         }
         
-        await dbManager.delete(STORES.conversations, id);
         actions.deleteConversation(id);
+        await dbManager.delete(STORES.conversations, id);
+
         api.deleteConversation(id).catch(error => {
             console.error('[Delete] Фоновое удаление на сервере не удалось:', error);
         });
