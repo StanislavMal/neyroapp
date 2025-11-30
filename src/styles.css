@@ -1,4 +1,4 @@
-/* src/styles.css */
+/* 📄 src/styles.css */
 @import "tailwindcss";
 @import "highlight.js/styles/atom-one-dark.css";
 /*@import "katex/dist/katex.min.css";*/
@@ -45,7 +45,6 @@ code {
   background-color: rgba(156, 163, 175, 0.7);
 }
 
-/* ✅ УЛУЧШЕННЫЕ СТИЛИ ДЛЯ MARKDOWN */
 .prose {
   max-width: none;
   color: #e5e7eb;
@@ -87,8 +86,6 @@ code {
   padding: 0.00rem 0.275rem;
   border-radius: 0.95rem;
   cursor: pointer;
-  user-select: none;
-  -webkit-user-select: none;
   transition: all 0.2s ease;
   background-color: #1E2633;
   color: #a5d6ff;
@@ -364,7 +361,6 @@ code {
 }
 
 .prose pre code {
-  /* ✅ ИЗМЕНЕНИЕ: Устанавливаем базовый, более мелкий размер шрифта */
   font-size: 0.875rem; /* 14px, если базовый шрифт 16px */
   line-height: 1.6;
   color: #e6edf3;
@@ -374,11 +370,9 @@ code {
   white-space: inherit;
 }
 
-/* ✅ НОВОЕ: Медиа-запрос для мобильных устройств */
 @media (max-width: 767px) {
   .prose pre code {
-    /* Уменьшаем шрифт еще больше на маленьких экранах */
-    font-size: 0.8125rem; /* 13px, если базовый шрифт 16px */
+    font-size: 0.8125rem;
   }
 }
 
