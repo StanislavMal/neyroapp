@@ -141,8 +141,10 @@ function Home() {
       }
       
       lockToBottom();
-      footerRef.current?.resetInput();
+
       await sendMessage(textMessage, attachments);
+      footerRef.current?.resetInput();
+
     },
     [isLoading, sendMessage, lockToBottom]
   );

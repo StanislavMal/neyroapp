@@ -38,13 +38,21 @@ interface ChatMessageProps {
   onImageClick?: (messageId: string, attachmentIndex: number) => void;
 }
 
-const ImageTile = ({ attachment, onClick, className = '', userId }: { attachment: any, onClick: () => void, className?: string, userId: string | null }) => { // ✅ ИСПРАВЛЕНИЕ
+const ImageTile = ({ attachment, onClick, className = '', userId }: { attachment: any, onClick: () => void, className?: string, userId: string | null }) => {
   const { ref, inView } = useInView({
     triggerOnce: true,
     rootMargin: '200px 0px',
   });
   
-  const displayUrl = useCachedImage(attachment.path, userId);
+  const isTemporaryBlob = attachment.url && attachment.url.startsWith('blob:');
+  const finalImageUrl = useCachedImage(isTemporaryBlob ? undefined : attachment.path, userId);
+  const currentUrl = isTemporaryBlob ? attachment.url : finalImageUrl;
+
+  const lastGoodUrlRef = useRef<string | null>(null);
+  if (currentUrl) {
+    lastGoodUrlRef.current = currentUrl;
+  }
+  const displayUrl = currentUrl || lastGoodUrlRef.current;
 
   return (
     <div ref={ref} className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
