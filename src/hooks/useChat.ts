@@ -290,6 +290,7 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         const tempMessageId = crypto.randomUUID();
+        
         const tempAttachments: Attachment[] = hasAttachments ? files.map(file => {
             const blobUrl = URL.createObjectURL(file);
             tempBlobUrls.push(blobUrl);
@@ -330,7 +331,8 @@ export function useChat(options: UseChatOptions = {}) {
           if (hasContent) userMessageContentForAI.push({ type: 'text', text: content.trim() });
           if (hasAttachments) {
             for (const file of files) {
-              const { mimeType, data } = await fileToBase64(file);
+              const compressedFile = await compressImage(file);
+              const { mimeType, data } = await fileToBase64(compressedFile);
               userMessageContentForAI.push({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } });
             }
           }
