@@ -38,16 +38,17 @@ export interface State {
   messageCache: Record<string, Message[]>
   currentConversationId: string | null
   isLoading: boolean
+  deletingConversationIds: Set<string>
 }
 
 const initialState: State = {
   prompts: [],
   settings: null,
   conversations: [],
-
   messageCache: {},
   currentConversationId: null,
   isLoading: false,
+  deletingConversationIds: new Set(),
 }
 
 export const store = new Store<State>(initialState)
@@ -55,6 +56,26 @@ export const store = new Store<State>(initialState)
 export const actions = {
   resetStore: () => {
     store.setState(() => initialState);
+  },
+  startDeletingConversation: (id: string) => {
+    store.setState(state => {
+      const newSet = new Set(state.deletingConversationIds);
+      newSet.add(id);
+      return { ...state, deletingConversationIds: newSet };
+    });
+  },
+
+  finishDeletingConversation: (id: string) => {
+    store.setState(state => {
+      const newSet = new Set(state.deletingConversationIds);
+      newSet.delete(id);
+      return {
+        ...state,
+        deletingConversationIds: newSet,
+        conversations: state.conversations.filter(conv => conv.id !== id),
+        currentConversationId: state.currentConversationId === id ? null : state.currentConversationId,
+      };
+    });
   },
 
   setCachedMessages: (conversationId: string, messages: Message[]) => {
@@ -163,15 +184,6 @@ export const actions = {
       )
     }))
   },
-
-  deleteConversation: (id: string) => {
-    actions.clearCachedMessages(id);
-    store.setState(state => ({
-      ...state,
-      conversations: state.conversations.filter(conv => conv.id !== id),
-      currentConversationId: state.currentConversationId === id ? null : state.currentConversationId,
-    }));
-  },
   
   setLoading: (isLoading: boolean) => {
     store.setState(state => ({ ...state, isLoading }))
@@ -225,4 +237,5 @@ export const selectors = {
     if (!state.currentConversationId) return [];
     return state.messageCache[state.currentConversationId] || [];
   },
+  getDeletingConversationIds: (state: State) => state.deletingConversationIds,
 }

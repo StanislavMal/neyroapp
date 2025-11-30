@@ -16,6 +16,7 @@ export function useSidebar() {
     updateConversationTitle,
     deleteConversation,
     duplicateConversation,
+    deletingConversationIds,
   } = useConversations();
 
   const handleNewChat = useCallback(() => {
@@ -70,6 +71,7 @@ export function useSidebar() {
     editingTitle,
     conversations,
     currentConversationId,
+    deletingConversationIds,
     
     // Actions
     setIsOpen,

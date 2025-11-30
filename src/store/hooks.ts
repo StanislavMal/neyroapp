@@ -154,6 +154,7 @@ export function useConversations() {
   const currentConversationId = useStore(store, s => selectors.getCurrentConversationId(s));
   const currentConversation = useStore(store, s => selectors.getCurrentConversation(s));
   const currentMessages = useStore(store, s => selectors.getCurrentMessages(s));
+  const deletingConversationIds = useStore(store, s => selectors.getDeletingConversationIds(s));
 
   const syncConversations = useCallback(async () => {
     if (!user) return;
@@ -182,6 +183,7 @@ export function useConversations() {
         if (toDeleteIds.length > 0) {
           for (const id of toDeleteIds) {
             try {
+              actions.startDeletingConversation(id);
               const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
               if (messagesInConv.length > 0) {
                 const attachmentPaths = messagesInConv.flatMap(m => m.attachments?.map(a => a.path) ?? []).filter(Boolean);
@@ -191,9 +193,10 @@ export function useConversations() {
                 await dbManager.bulkDelete(STORES.messages, messagesInConv.map(m => m.id));
               }
               await dbManager.delete(STORES.conversations, id);
-              actions.deleteConversation(id);
+              actions.finishDeletingConversation(id);
             } catch (e) {
               console.error(`[Sync] Ошибка при обработке удаления диалога ${id}:`, e);
+              actions.finishDeletingConversation(id);
             }
           }
         }
@@ -272,8 +275,9 @@ export function useConversations() {
   }, [user]);
 
   const deleteConversation = useCallback(async (id: string) => {
-    if (!user) return;
+    if (!user || deletingConversationIds.has(id)) return;
     const dbManager = getDbManager(user.id);
+    actions.startDeletingConversation(id);
 
     try {
         const messagesInConv = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', id);
@@ -286,15 +290,17 @@ export function useConversations() {
         }
         
         await dbManager.delete(STORES.conversations, id);
-        actions.deleteConversation(id);
+
         api.deleteConversation(id).catch(error => {
             console.error('[Delete] Фоновое удаление на сервере не удалось:', error);
         });
 
     } catch (error) {
         console.error('[Delete] Произошла ошибка при удалении диалога:', error);
+    } finally {
+        actions.finishDeletingConversation(id);
     }
-  }, [user]);
+  }, [user, deletingConversationIds]);
   
   const addMessage = useCallback(async (conversationId: string, message: Message) => {
     if (!user) return;
@@ -447,6 +453,7 @@ export function useConversations() {
     currentConversationId,
     currentConversation,
     messages: currentMessages,
+    deletingConversationIds,
     setCurrentConversationId,
     loadInitialConversations,
     syncConversations,
