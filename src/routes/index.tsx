@@ -6,9 +6,10 @@ import Lightbox from 'yet-another-react-lightbox';
 import Download from "yet-another-react-lightbox/plugins/download";
 import { supabase } from '../utils/supabase';
 import { useAuth } from '../providers/AuthProvider';
-import { DesktopLayout, MobileLayout } from '../components';
+import { DesktopLayout, MobileLayout, LightboxSlide } from '../components';
 import type { FooterRef } from '../components/Footer';
 import type { FileWithThumbnail } from '../components/ChatInput';
+import type { CustomSlide } from '../components/LightboxSlide';
 import {
   useChat,
   useSidebar,
@@ -98,18 +99,24 @@ function Home() {
 
   useSupabaseSubscriptions({ user, loadConversations: syncConversations, loadPrompts });
 
-  const allImages = useMemo(() => 
-    messages.flatMap(msg => msg.attachments?.filter(att => att.type === 'image' && att.url).map(att => ({ 
-      src: att.url,
-      download: true 
-    })) ?? [])
+  const lightboxSlides = useMemo((): CustomSlide[] => 
+    messages.flatMap(msg => 
+      msg.attachments
+        ?.filter(att => att.type === 'image' && att.path)
+        .map(att => ({
+          id: `${msg.id}-${att.path}`,
+          path: att.path,
+          type: 'image',
+          src: att.url,
+        })) ?? []
+    )
   , [messages]);
 
   const handleImageClick = useCallback((messageId: string, attachmentIndex: number) => {
     let globalIndex = 0;
     let found = false;
     for (const msg of messages) {
-      const imageAttachments = msg.attachments?.filter(att => att.type === 'image') ?? [];
+      const imageAttachments = msg.attachments?.filter(att => att.type === 'image' && att.path) ?? [];
       if (msg.id === messageId) {
         globalIndex += attachmentIndex;
         found = true;
@@ -228,13 +235,21 @@ function Home() {
     return (
       <>
         {isDesktop ? <DesktopLayout {...layoutProps} /> : <MobileLayout {...layoutProps} />}
-        {allImages.length > 0 && (
+        {lightboxSlides.length > 0 && (
           <Lightbox
             open={lightboxOpen}
             close={() => setLightboxOpen(false)}
-            slides={allImages}
+            slides={lightboxSlides}
             index={lightboxIndex}
             plugins={[Download]}
+            render={{
+              slide: (props) => (
+                <LightboxSlide
+                  {...props}
+                  slide={props.slide as CustomSlide}
+                />
+              ),
+            }}
           />
         )}
       </>
