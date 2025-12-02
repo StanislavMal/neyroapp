@@ -83,6 +83,11 @@ class DBManager {
 
   // --- Image Cache Methods ---
 
+  async getImageBlobReadOnly(path: string): Promise<Blob | null> {
+    const metadata = await this.get<ImageMetadata>(STORES.imageMeta, path);
+    return metadata?.blob || null;
+  }
+
   async bulkDeleteImages(paths: string[]): Promise<void> {
     if (paths.length === 0) return;
     console.log(`[DBManager] Deleting ${paths.length} images from cache.`);
@@ -173,6 +178,7 @@ class NoOpDBManager {
   async clear(): Promise<void> {}
   async getLastSyncTimestamp(): Promise<string | null> { return null; }
   async setLastSyncTimestamp(): Promise<void> {}
+  async getImageBlobReadOnly(): Promise<Blob | null> { return null; }
   async bulkDeleteImages(): Promise<void> {}
   async getCachedImageBlob(): Promise<Blob | null> { return null; }
   async cacheImage(): Promise<Blob | null> { return null; }

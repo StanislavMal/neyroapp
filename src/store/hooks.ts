@@ -371,7 +371,7 @@ export function useConversations() {
     }
   }, [user]);
 
-  const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
+    const editMessageAndUpdate = useCallback(async (messageId: string, newContent: string): Promise<Message[] | null> => {
     if (!user) return null;
     const dbManager = getDbManager(user.id);
     const convId = selectors.getCurrentConversationId(store.state);
@@ -385,15 +385,26 @@ export function useConversations() {
     const idsToDelete = messagesToDelete.map(m => m.id);
     const attachmentPathsToDelete = messagesToDelete.flatMap(msg => msg.attachments || []).map(att => att.path).filter(Boolean);
 
+    // Локальные обновления
     actions.editCachedMessage(convId, messageId, newContent);
     const updatedMessages = selectors.getCurrentMessages(store.state);
     await dbManager.bulkPut(STORES.messages, updatedMessages);
-    await dbManager.bulkDelete(STORES.messages, idsToDelete);
+    if (idsToDelete.length > 0) {
+      await dbManager.bulkDelete(STORES.messages, idsToDelete);
+    }
+    if (attachmentPathsToDelete.length > 0) {
+      await dbManager.bulkDeleteImages(attachmentPathsToDelete);
+    }
     
     try {
+      // Удаленные обновления
       const promises = [];
-      if (attachmentPathsToDelete.length > 0) promises.push(api.deleteAttachments(attachmentPathsToDelete));
-      if (idsToDelete.length > 0) promises.push(api.deleteMessages(idsToDelete));
+      if (attachmentPathsToDelete.length > 0) {
+        promises.push(api.deleteAttachments(attachmentPathsToDelete));
+      }
+      if (idsToDelete.length > 0) {
+        promises.push(api.deleteMessages(idsToDelete));
+      }
       promises.push(api.updateMessageContent(messageId, newContent));
       
       await Promise.all(promises);
