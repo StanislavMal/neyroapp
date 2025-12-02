@@ -28,8 +28,11 @@ export type MessageContent = string | Array<{
 export interface Message {
   id: string;
   role: 'user' | 'assistant' | 'system';
-  content: string; // В UI здесь всегда будет текст
-  attachments?: Attachment[]; // А здесь - вложения
+  content: string;
+  attachments?: Attachment[];
+  conversation_id?: string;
+  user_id?: string;
+  created_at?: string;
 }
 
 export interface AIModel {

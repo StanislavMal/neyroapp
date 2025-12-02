@@ -290,8 +290,8 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         const tempMessageId = crypto.randomUUID();
-        
-        const tempAttachments: Attachment[] = hasAttachments ? files.map(file => {
+
+        const tempAttachmentsForUI: Attachment[] = hasAttachments ? files.map(file => {
             const blobUrl = URL.createObjectURL(file);
             tempBlobUrls.push(blobUrl);
             return {
@@ -302,14 +302,20 @@ export function useChat(options: UseChatOptions = {}) {
             };
         }) : [];
 
-        const userMessage: Message = { 
+        const messageForUI: Message = { 
           id: tempMessageId, 
           role: 'user', 
           content: content.trim(),
-          attachments: tempAttachments,
+          attachments: tempAttachmentsForUI,
         };
+        const messageForDB: Message = {
+          id: tempMessageId, 
+          role: 'user', 
+          content: content.trim(),
+        };
+
+        await addMessage(convId, messageForUI, messageForDB);
         
-        await addMessage(convId, userMessage);
         const compressedFiles = hasAttachments 
           ? await Promise.all(files.map(file => compressImage(file)))
           : [];
@@ -343,12 +349,15 @@ export function useChat(options: UseChatOptions = {}) {
         };
         
         const [finalAttachments, aiResponse] = await Promise.all([uploadTask(), aiTask()]);
-
-        await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+        
+        if (finalAttachments.length > 0) {
+          await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
+          await api.updateMessageAttachments(tempMessageId, finalAttachments);
+        }
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
-          await addMessage(convId, aiResponse);
+          await addMessage(convId, aiResponse, aiResponse);
           options.onResponseComplete?.(aiResponse);
         }
 
@@ -381,7 +390,7 @@ export function useChat(options: UseChatOptions = {}) {
         const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
-          await addMessage(currentConversationId, aiResponse);
+          await addMessage(currentConversationId, aiResponse, aiResponse);
           options.onResponseComplete?.(aiResponse);
         }
       } catch (error) {

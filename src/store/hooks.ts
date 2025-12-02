@@ -6,6 +6,7 @@ import { actions, selectors, store, type Conversation, type Prompt, type UserSet
 import type { Message, Attachment } from '../lib/ai/types';
 import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
+import type { NewMessagePayload } from '../services/supabase';
 import { getDbManager, STORES } from '../services/db-manager';
 
 // --- Хук для настроек ---
@@ -232,9 +233,7 @@ export function useConversations() {
     const cachedMessages = await dbManager.getByIndex<Message>(STORES.messages, 'conversation_id', conversationId);
     
     cachedMessages.sort((a, b) => {
-      // @ts-ignore
       const dateA = new Date(a.created_at || 0).getTime();
-      // @ts-ignore
       const dateB = new Date(b.created_at || 0).getTime();
       return dateA - dateB;
     });
@@ -321,18 +320,22 @@ export function useConversations() {
         console.error('[Delete] Произошла ошибка при удалении диалога:', error);
     }
   }, [user]);
-  
-  const addMessage = useCallback(async (conversationId: string, message: Message) => {
+  const addMessage = useCallback(async (conversationId: string, messageForUI: Message, messageForDB: Message) => {
     if (!user) return;
     const dbManager = getDbManager(user.id);
-    
-    // @ts-ignore
-    const fullMessage: Message = { ...message, conversation_id: conversationId, user_id: user.id, created_at: new Date().toISOString() };
+    const messageForCache: Message = { 
+      ...messageForUI, 
+      conversation_id: conversationId, 
+      user_id: user.id, 
+      created_at: new Date().toISOString() 
+    };
 
-    actions.addMessageToCache(conversationId, fullMessage);
-    await dbManager.put(STORES.messages, fullMessage);
+    // Обновляем UI и локальный кэш
+    actions.addMessageToCache(conversationId, messageForCache);
+    await dbManager.put(STORES.messages, messageForCache);
 
-    api.createMessage(user.id, conversationId, message)
+    // Отправляем "чистую" версию в БД
+    api.createMessage(user.id, conversationId, messageForDB)
       .then(({ error }) => {
         if (error) throw error;
         return syncConversations();
@@ -420,8 +423,7 @@ export function useConversations() {
       if (newConvError || !data) throw new Error('Не удалось создать дубликат беседы');
       newConvData = data as Conversation;
 
-      // @ts-ignore
-      const newMessagesToInsert = await Promise.all(messagesToCopy.map(async (message: Message & { created_at: string }) => {
+      const newMessagesToInsert = await Promise.all((messagesToCopy as Message[]).map(async (message) => {
         let newAttachments: Attachment[] = [];
         if (message.attachments && message.attachments.length > 0) {
           const signedUrls = await api.createSignedUrls(message.attachments.map(a => a.path));
@@ -454,8 +456,7 @@ export function useConversations() {
       }));
 
       if (newMessagesToInsert.length > 0) {
-        // @ts-ignore
-        await api.bulkInsertMessages(newMessagesToInsert);
+        await api.bulkInsertMessages(newMessagesToInsert as NewMessagePayload[]);
       }
       
       await syncConversations();
