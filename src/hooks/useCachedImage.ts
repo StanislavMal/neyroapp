@@ -9,25 +9,28 @@ export function useCachedImage(path: string | undefined, userId: string | null |
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    let isMounted = true;
-    let objectUrl: string | null = null;
+    let isCancelled = false;
     const dbManager = userId ? getDbManager(userId) : noOpDbManager;
 
     async function loadImage() {
       if (!path) {
         setImageUrl(null);
-        return;
+        return () => {};
       }
 
       const cachedBlob = await dbManager.getCachedImageBlob(path);
-      if (isMounted && cachedBlob) {
-        objectUrl = URL.createObjectURL(cachedBlob);
+      
+      if (isCancelled) return () => {};
+
+      if (cachedBlob) {
+        const objectUrl = URL.createObjectURL(cachedBlob);
         setImageUrl(objectUrl);
-        return;
+        
+        return () => {
+          URL.revokeObjectURL(objectUrl);
+        };
       }
-
-      if (!isMounted) return;
-
+      
       try {
         const newBlob = await retryAsync(async () => {
           const signedUrls = await api.createSignedUrls([path]);
@@ -49,23 +52,37 @@ export function useCachedImage(path: string | undefined, userId: string | null |
           }
         });
 
-        if (isMounted && newBlob) {
-          objectUrl = URL.createObjectURL(newBlob);
+        if (isCancelled) return () => {};
+
+        if (newBlob) {
+          const objectUrl = URL.createObjectURL(newBlob);
           setImageUrl(objectUrl);
+          return () => {
+            URL.revokeObjectURL(objectUrl);
+          };
         }
       } catch (error) {
         console.error(`[useCachedImage] Failed to load image for ${path} after multiple retries:`, error);
-        if (isMounted) setImageUrl(null);
+        if (!isCancelled) setImageUrl(null);
       }
+      
+      return () => {};
     }
 
-    loadImage();
+    let cleanup: (() => void) | null = null;
+    
+    loadImage().then(cleanupFn => {
+      if (cleanupFn) {
+        cleanup = cleanupFn;
+      }
+    });
 
     return () => {
-      isMounted = false;
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl);
+      isCancelled = true;
+      if (cleanup) {
+        cleanup();
       }
+      setImageUrl(null); 
     };
   }, [path, userId]);
 

@@ -118,6 +118,16 @@ export function createMessage(userId: string, conversationId: string, message: M
   );
 }
 
+export function updateMessageAttachments(id: string, attachments: Attachment[]) {
+  const attachmentsForDb = attachments.map(att => ({
+    type: att.type,
+    path: att.path,
+  }));
+  return retryAsync(() => 
+    supabase.from('messages').update({ attachments: attachmentsForDb }).eq('id', id)
+  );
+}
+
 export function updateMessageContent(id: string, content: string) {
   return retryAsync(() => 
     supabase.from('messages').update({ content }).eq('id', id)
@@ -130,7 +140,7 @@ export function deleteMessages(ids: string[]) {
   );
 }
 
-type NewMessagePayload = {
+export type NewMessagePayload = {
   conversation_id: string;
   user_id: string;
   role: 'user' | 'assistant' | 'system';
@@ -170,6 +180,7 @@ export async function uploadAttachment(userId: string, file: File): Promise<stri
 }
 
 export async function createSignedUrls(paths: string[]): Promise<{ path: string; signedUrl: string }[]> {
+  if (paths.length === 0) return [];
   const { data, error } = await retryAsync(() => 
     supabase.storage
       .from('message_attachments')

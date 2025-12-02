@@ -39,19 +39,32 @@ interface ChatMessageProps {
 }
 
 const ImageTile = ({ attachment, onClick, className = '', userId }: { attachment: any, onClick: () => void, className?: string, userId: string | null }) => {
+  if (!attachment.url && !attachment.path) {
+    return (
+      <div className={`relative w-full h-full bg-gray-700/50 rounded-lg ${className}`}>
+        <div className="w-full h-full flex items-center justify-center text-red-400 text-xs p-2">
+          Invalid image data
+        </div>
+      </div>
+    );
+  }
+
   const { ref, inView } = useInView({
     triggerOnce: true,
     rootMargin: '200px 0px',
   });
   
-  const isTemporaryBlob = attachment.url && attachment.url.startsWith('blob:');
-  const finalImageUrl = useCachedImage(isTemporaryBlob ? undefined : attachment.path, userId);
-  const currentUrl = isTemporaryBlob ? attachment.url : finalImageUrl;
+  const isTemporaryBlob = attachment.url?.startsWith('blob:');
+  const imageUrlFromCache = useCachedImage(isTemporaryBlob ? undefined : attachment.path, userId);
 
   const lastGoodUrlRef = useRef<string | null>(null);
+
+  const currentUrl = isTemporaryBlob ? attachment.url : imageUrlFromCache;
+  
   if (currentUrl) {
     lastGoodUrlRef.current = currentUrl;
   }
+
   const displayUrl = currentUrl || lastGoodUrlRef.current;
 
   return (
