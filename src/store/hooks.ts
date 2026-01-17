@@ -30,7 +30,7 @@ export function useSettings() {
         const serverSettings = data?.settings || {};
         const settingsWithDefaults: UserSettings = {
             userId: user.id,
-            model: serverSettings.model || 'gemini-2.5-flash',
+            model: serverSettings.model || 'gemini-3-flash-preview',
             provider: serverSettings.provider || 'gemini',
             system_instruction: serverSettings.system_instruction || '',
             temperature: serverSettings.temperature ?? 0.7,
@@ -47,7 +47,7 @@ export function useSettings() {
         if (!cachedSettings) {
             const defaultSettings: UserSettings = {
                 userId: user.id,
-                model: 'gemini-2.5-flash', provider: 'gemini', system_instruction: '',
+                model: 'gemini-3-flash-preview', provider: 'gemini', system_instruction: '',
                 temperature: 0.7, maxTokens: 8192, reasoningEffort: 'none', streamSpeed: 30,
             };
             actions.setSettings(defaultSettings);

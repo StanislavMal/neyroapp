@@ -18,6 +18,16 @@ interface ModelConfig {
 
 export const MODELS: ModelConfig[] = [
   {
+    id: 'gemini-3-flash-preview',
+    name: 'Gemini 3 Flash',
+    provider: 'gemini',
+    icon: <Zap className="w-4 h-4" />,
+    description: 'Latest preview',
+    supportsReasoning: true,
+    requiresReasoning: false,
+    supportsVision: true,
+  },
+  {
     id: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
     provider: 'gemini',

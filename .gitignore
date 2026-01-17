@@ -11,3 +11,4 @@ dist-ssr
 node_modules/
 dist/
 .vercel/
+.github/

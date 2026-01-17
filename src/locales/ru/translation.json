@@ -18,6 +18,7 @@
   "settings": "Настройки",
   "generalSettings": "Общие настройки",
   "aiModel": "Модель ИИ",
+    "modelGemini3Flash": "Gemini 3 Flash (Новейшая)",
   "modelGeminiFlash": "Gemini 2.5 Flash (Быстрая)",
   "modelGeminiPro": "Gemini 2.5 Pro (Мощная)",
   "modelDeepSeekChat": "DeepSeek Chat (V3 Универсальная)",
