@@ -20,8 +20,8 @@ export class GeminiOpenAIProvider extends BaseOpenAIProvider {
     // Получаем базовые опции от родительского класса
     const requestOptions = super.buildRequestOptions(messages, config);
 
-    // Логика, специфичная для Gemini 2.5
-    if (config.model?.includes('2.5')) {
+    // Логика, специфичная для Gemini 2.5 и 3.0
+    if (config.model?.includes('2.5') || config.model?.includes('3')) {
       if (config.reasoningEffort && config.reasoningEffort !== 'none') {
         (requestOptions as any).reasoning_effort = config.reasoningEffort;
       }
@@ -37,6 +37,21 @@ export class GeminiOpenAIProvider extends BaseOpenAIProvider {
 
   getAvailableModels(): AIModel[] {
     return [
+      {
+        id: 'gemini-3-flash-preview',
+        name: 'Gemini 3 Flash Preview',
+        provider: 'gemini',
+        description: 'Latest Gemini 3 Flash model with improved performance',
+        contextWindow: 1000000,
+        maxOutputTokens: 16384,
+        supportsFunctions: true,
+        supportsVision: true,
+        supportsAudio: true,
+        reasoning: {
+          supported: true,
+          levels: ['low', 'medium', 'high'],
+        },
+      },
       {
         id: 'gemini-2.5-flash',
         name: 'Gemini 2.5 Flash',

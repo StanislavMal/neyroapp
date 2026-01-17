@@ -9,41 +9,17 @@ import { useAuth } from '../providers/AuthProvider';
 import * as api from '../services/supabase';
 import { compressImage } from '../utils/image-compression';
 import { MODELS } from '../components/ModelSelector';
+import { getDbManager } from '../services/db-manager';
 
-const fileToBase64 = (file: File): Promise<{ mimeType: string; data: string }> => {
+const toBase64 = (data: File | Blob): Promise<{ mimeType: string; data: string }> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(data);
     reader.onload = () => {
       const result = reader.result as string;
-      const [header, data] = result.split(',');
-      const mimeType = header.match(/:(.*?);/)?.[1] || file.type;
-      resolve({ mimeType, data });
-    };
-    reader.onerror = (error) => reject(error);
-  });
-};
-
-const urlToBase64 = async (url: string): Promise<{ mimeType: string; data: string }> => {
-  if (url.startsWith('data:')) {
-    const [header, data] = url.split(',');
-    const mimeType = header.match(/:(.*?);/)?.[1] || 'application/octet-stream';
-    return { mimeType, data };
-  }
-  
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image from URL: ${url}`);
-  }
-  const blob = await response.blob();
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(blob);
-    reader.onload = () => {
-      const result = reader.result as string;
-      const [header, data] = result.split(',');
-      const mimeType = header.match(/:(.*?);/)?.[1] || blob.type;
-      resolve({ mimeType, data });
+      const [header, dataPart] = result.split(',');
+      const mimeType = header.match(/:(.*?);/)?.[1] || data.type;
+      resolve({ mimeType, data: dataPart });
     };
     reader.onerror = (error) => reject(error);
   });
@@ -74,18 +50,12 @@ export function useChat(options: UseChatOptions = {}) {
   const currentModel = MODELS.find(m => m.id === settings?.model);
   const supportsVision = currentModel?.supportsVision ?? false;
 
-  const base64Cache = useRef(new Map<string, { mimeType: string; data: string }>());
-
   const textQueueRef = useRef<string>('');
   const displayedTextRef = useRef<string>('');
   const intervalIdRef = useRef<NodeJS.Timeout | null>(null);
   const bufferRef = useRef<string>('');
   const activeRequestIdRef = useRef<string | null>(null);
   const isStreamActiveRef = useRef<boolean>(false);
-
-  useEffect(() => {
-    base64Cache.current.clear();
-  }, [currentConversationId]);
 
   useEffect(() => {
     return () => {
@@ -218,7 +188,9 @@ export function useChat(options: UseChatOptions = {}) {
     [settings, activePrompt, startTypingAnimation, stopTypingAnimation, options, parseNDJSON]
   );
 
-  const prepareHistoryForAI = async (messages: Message[], supportsVision: boolean): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+  const prepareHistoryForAI = useCallback(async (messages: Message[], supportsVision: boolean): Promise<{ role: 'user' | 'assistant', content: MessageContent }[]> => {
+    if (!user) return [];
+    const dbManager = getDbManager(user.id);
     const historyForAI: { role: 'user' | 'assistant', content: MessageContent }[] = [];
 
     for (const msg of messages) {
@@ -232,25 +204,24 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         for (const attachment of msg.attachments) {
-          if (attachment.type === 'image' && attachment.url) {
-            try {
-              let base64Data: { mimeType: string; data: string };
-              if (base64Cache.current.has(attachment.path)) {
-                base64Data = base64Cache.current.get(attachment.path)!;
-              } else {
-                base64Data = await urlToBase64(attachment.url);
-                if (attachment.path) {
-                  base64Cache.current.set(attachment.path, base64Data);
-                }
-              }
-              
+          if (attachment.type !== 'image' || !attachment.path) continue;
+          
+          try {
+            // ✅ ИЗМЕНЕНИЕ: Полагаемся только на локальный кэш.
+            const imageBlob = await dbManager.getImageBlobReadOnly(attachment.path);
+            
+            if (imageBlob) {
+              const { mimeType, data } = await toBase64(imageBlob);
               contentParts.push({
                 type: 'image_url',
-                image_url: { url: `data:${base64Data.mimeType};base64,${base64Data.data}` },
+                image_url: { url: `data:${mimeType};base64,${data}` },
               });
-            } catch (e) {
-              console.error(`Failed to convert attachment URL to base64 for message ${msg.id}`, e);
+            } else {
+              // Логируем ошибку, но не прерываем процесс.
+              console.error(`[prepareHistoryForAI] CRITICAL: Blob for ${attachment.path} not found in local cache during regeneration.`);
             }
+          } catch (e) {
+            console.error(`[prepareHistoryForAI] Error processing attachment ${attachment.path}:`, e);
           }
         }
         historyForAI.push({ role: msg.role, content: contentParts });
@@ -259,7 +230,7 @@ export function useChat(options: UseChatOptions = {}) {
       }
     }
     return historyForAI;
-  };
+  }, [user]);
 
   const sendMessage = useCallback(
     async (content: string, files?: File[] | null) => {
@@ -290,7 +261,7 @@ export function useChat(options: UseChatOptions = {}) {
         }
 
         const tempMessageId = crypto.randomUUID();
-
+        
         const tempAttachmentsForUI: Attachment[] = hasAttachments ? files.map(file => {
             const blobUrl = URL.createObjectURL(file);
             tempBlobUrls.push(blobUrl);
@@ -301,7 +272,7 @@ export function useChat(options: UseChatOptions = {}) {
                 isLoading: true,
             };
         }) : [];
-
+        
         const messageForUI: Message = { 
           id: tempMessageId, 
           role: 'user', 
@@ -313,7 +284,7 @@ export function useChat(options: UseChatOptions = {}) {
           role: 'user', 
           content: content.trim(),
         };
-
+        
         await addMessage(convId, messageForUI, messageForDB);
         
         const compressedFiles = hasAttachments 
@@ -340,7 +311,7 @@ export function useChat(options: UseChatOptions = {}) {
           if (hasContent) userMessageContentForAI.push({ type: 'text', text: content.trim() });
           if (hasAttachments) {
             for (const compressedFile of compressedFiles) {
-              const { mimeType, data } = await fileToBase64(compressedFile);
+              const { mimeType, data } = await toBase64(compressedFile);
               userMessageContentForAI.push({ type: 'image_url', image_url: { url: `data:${mimeType};base64,${data}` } });
             }
           }
@@ -349,7 +320,7 @@ export function useChat(options: UseChatOptions = {}) {
         };
         
         const [finalAttachments, aiResponse] = await Promise.all([uploadTask(), aiTask()]);
-        
+
         if (finalAttachments.length > 0) {
           await updateMessage(convId, tempMessageId, { attachments: finalAttachments });
           await api.updateMessageAttachments(tempMessageId, finalAttachments);
@@ -357,8 +328,9 @@ export function useChat(options: UseChatOptions = {}) {
         
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
-          await addMessage(convId, aiResponse, aiResponse);
-          options.onResponseComplete?.(aiResponse);
+          const aiMessage: Message = { ...aiResponse };
+          await addMessage(convId, aiMessage, aiMessage);
+          options.onResponseComplete?.(aiMessage);
         }
 
       } catch (error) {
@@ -372,7 +344,7 @@ export function useChat(options: UseChatOptions = {}) {
         tempBlobUrls.forEach(url => URL.revokeObjectURL(url));
       }
     },
-    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision, pendingMessage]
+    [user, isLoading, currentConversationId, createNewConversation, addMessage, updateMessage, processAIResponse, options, supportsVision, prepareHistoryForAI]
   );
   
   const editAndRegenerate = useCallback(
@@ -390,8 +362,9 @@ export function useChat(options: UseChatOptions = {}) {
         const aiResponse = await processAIResponse(messageHistoryForAI);
         setPendingMessage(null);
         if (aiResponse && aiResponse.content.trim()) {
-          await addMessage(currentConversationId, aiResponse, aiResponse);
-          options.onResponseComplete?.(aiResponse);
+          const aiMessage: Message = { ...aiResponse };
+          await addMessage(currentConversationId, aiMessage, aiMessage);
+          options.onResponseComplete?.(aiMessage);
         }
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : 'An error occurred during edit';
@@ -402,7 +375,7 @@ export function useChat(options: UseChatOptions = {}) {
         setIsLoading(false);
       }
     },
-    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision]
+    [isLoading, currentConversationId, editMessageAndUpdate, addMessage, processAIResponse, options, supportsVision, prepareHistoryForAI]
   );
 
   const clearError = useCallback(() => setError(null), []);
